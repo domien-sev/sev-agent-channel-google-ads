@@ -85,8 +85,9 @@ export async function syncKeywords(
 
       // Check if keyword already exists
       try {
+        // @ts-ignore — collection not in typed schema
         const existing = await (client as any).request(
-          readItems("google_ads_keywords" as any, {
+          readItems("google_ads_keywords", {
             filter: {
               keyword_text: { _eq: keywordText },
               campaign_id: { _eq: campaignId },
@@ -221,8 +222,9 @@ export async function syncAssetGroups(
       };
 
       try {
+        // @ts-ignore — collection not in typed schema
         const existing = await (client as any).request(
-          readItems("google_ads_asset_groups" as any, {
+          readItems("google_ads_asset_groups", {
             filter: {
               resource_name: { _eq: assetGroupData.resource_name },
             },
