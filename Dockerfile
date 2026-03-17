@@ -20,6 +20,7 @@ COPY package.json package-lock.json .npmrc ./
 RUN npm install --omit=dev
 # Remove .npmrc and token from final image
 RUN rm -f .npmrc
+COPY --from=builder /app/dist ./dist
 ENV GH_PKG_TOKEN=""
 
 ENV NODE_ENV=production
