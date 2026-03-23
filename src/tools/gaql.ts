@@ -252,6 +252,76 @@ export function audiencePerformance(range?: DateRange): string {
   `.trim();
 }
 
+/** Campaign details (settings, budget, bidding — no date range needed) */
+export function campaignDetails(campaignId: string): string {
+  return `
+    SELECT
+      campaign.id,
+      campaign.name,
+      campaign.status,
+      campaign.advertising_channel_type,
+      campaign.advertising_channel_sub_type,
+      campaign.bidding_strategy_type,
+      campaign.target_cpa.target_cpa_micros,
+      campaign.target_roas.target_roas,
+      campaign.geo_target_type_setting.positive_geo_target_type,
+      campaign_budget.amount_micros,
+      campaign_budget.delivery_method
+    FROM campaign
+    WHERE campaign.id = ${campaignId}
+  `.trim();
+}
+
+/** All keywords for a campaign with match types and quality scores */
+export function campaignKeywords(campaignId: string): string {
+  return `
+    SELECT
+      ad_group.id,
+      ad_group.name,
+      ad_group_criterion.keyword.text,
+      ad_group_criterion.keyword.match_type,
+      ad_group_criterion.status,
+      ad_group_criterion.quality_info.quality_score,
+      ad_group_criterion.effective_cpc_bid_micros
+    FROM keyword_view
+    WHERE campaign.id = ${campaignId}
+      AND ad_group_criterion.status != 'REMOVED'
+    ORDER BY ad_group_criterion.keyword.text
+  `.trim();
+}
+
+/** All RSA ads for a campaign */
+export function campaignAds(campaignId: string): string {
+  return `
+    SELECT
+      ad_group.id,
+      ad_group.name,
+      ad_group_ad.ad.id,
+      ad_group_ad.ad.final_urls,
+      ad_group_ad.ad.responsive_search_ad.headlines,
+      ad_group_ad.ad.responsive_search_ad.descriptions,
+      ad_group_ad.ad.responsive_search_ad.path1,
+      ad_group_ad.ad.responsive_search_ad.path2,
+      ad_group_ad.status
+    FROM ad_group_ad
+    WHERE campaign.id = ${campaignId}
+      AND ad_group_ad.ad.type = 'RESPONSIVE_SEARCH_AD'
+      AND ad_group_ad.status != 'REMOVED'
+  `.trim();
+}
+
+/** Location targeting for a campaign */
+export function campaignLocations(campaignId: string): string {
+  return `
+    SELECT
+      campaign_criterion.location.geo_target_constant,
+      campaign_criterion.negative
+    FROM campaign_criterion
+    WHERE campaign.id = ${campaignId}
+      AND campaign_criterion.type = 'LOCATION'
+  `.trim();
+}
+
 /** Responsive search ad asset performance */
 export function rsaAssetPerformance(campaignId?: string): string {
   const campaignFilter = campaignId ? `AND campaign.id = ${campaignId}` : "";

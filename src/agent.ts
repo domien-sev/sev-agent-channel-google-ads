@@ -10,6 +10,7 @@ import { handleAudiences } from "./handlers/audiences.js";
 import { handleOptimize } from "./handlers/optimize.js";
 import { handleReport } from "./handlers/report.js";
 import { handleCreativeRequest } from "./handlers/creative-request.js";
+import { handleWizard, isWizardMessage } from "./handlers/wizard.js";
 
 export class GoogleAdsAgent extends BaseAgent {
   public googleAds!: GoogleAdsClient;
@@ -70,6 +71,11 @@ export class GoogleAdsAgent extends BaseAgent {
     this.logger.info(`Received: "${text}" from ${message.user_id}`);
 
     try {
+      // Wizard — must check first as it captures follow-up messages
+      if (isWizardMessage(text, message.channel_id, message.user_id)) {
+        return handleWizard(this, message);
+      }
+
       // Research & audit
       if (text.startsWith("research") || text.startsWith("audit") || text.startsWith("discover")) {
         return handleResearch(this, message);
@@ -133,7 +139,8 @@ export class GoogleAdsAgent extends BaseAgent {
         "`research account` — Discover existing campaigns and structure",
         "",
         "*Campaigns:*",
-        "`create search/shopping/pmax/display/youtube campaign \"Name\"` — Create campaign",
+        "`wizard` — AI-powered campaign creation wizard (with cloning)",
+        "`create search/shopping/pmax/display/youtube campaign \"Name\"` — Quick create",
         "",
         "*Keywords:*",
         "`keywords for [topic]` — Research keywords",
