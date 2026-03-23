@@ -6,6 +6,15 @@
 const DIRECTUS_URL = process.env.WEBSITE_COLLAB_DIRECTUS_URL ?? "https://admin.shoppingeventvip.be";
 const DIRECTUS_TOKEN = process.env.WEBSITE_COLLAB_DIRECTUS_TOKEN ?? "";
 
+interface EventDate {
+  date: string;
+  startTime: string;
+  endTime: string;
+  capacity: number;
+  capacityUsed: number;
+  type: string;
+}
+
 interface EventData {
   id: string;
   type: "online" | "physical";
@@ -20,6 +29,7 @@ interface EventData {
   dateTextNl: string | null;
   dateTextFr: string | null;
   brands: string[];
+  dates: EventDate[];
 }
 
 interface BrandData {
@@ -54,6 +64,8 @@ export async function getActiveEvents(): Promise<EventData[]> {
     "event_translations.title", "event_translations.languages_id",
     "event_translations.date", "event_translations.slug",
     "brands.brand_id.id", "brands.brand_id.name",
+    "dates.date", "dates.start_time", "dates.end_time",
+    "dates.capacity", "dates.capacity_used", "dates.type",
   ].join(",");
 
   const events = await directusFetch<Array<Record<string, any>>>(
@@ -86,6 +98,16 @@ export async function getActiveEvents(): Promise<EventData[]> {
       dateTextNl: nl.date ?? null,
       dateTextFr: fr.date ?? null,
       brands: brandNames,
+      dates: ((e.dates ?? []) as Array<Record<string, any>>)
+        .map((d) => ({
+          date: String(d.date ?? ""),
+          startTime: String(d.start_time ?? ""),
+          endTime: String(d.end_time ?? ""),
+          capacity: Number(d.capacity ?? 0),
+          capacityUsed: Number(d.capacity_used ?? 0),
+          type: String(d.type ?? "free"),
+        }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
     };
   });
 }
@@ -124,10 +146,17 @@ export function formatEventList(events: EventData[]): string {
   for (const e of events) {
     const brands = e.brands.length > 0 ? e.brands.join(", ") : "no brand";
     const dates = e.dateTextNl ?? `${e.startDate?.split("T")[0] ?? "?"} → ${e.endDate?.split("T")[0] ?? "?"}`;
-    const typeIcon = e.type === "online" ? "🌐" : "📍";
+    const typeIcon = e.type === "online" ? "online" : "physical";
 
-    lines.push(`  ${typeIcon} *${e.titleNl}*${e.titleFr && e.titleFr !== e.titleNl ? ` / ${e.titleFr}` : ""}`);
-    lines.push(`    ${brands} | ${dates}${e.url ? ` | ${e.url}` : ""}`);
+    // Show specific dates if available
+    let dateDetail = "";
+    if (e.dates.length > 0) {
+      const uniqueDates = [...new Set(e.dates.map((d) => d.date))];
+      dateDetail = ` (${uniqueDates.length} days, ${e.dates.length} slots)`;
+    }
+
+    lines.push(`  [${typeIcon}] *${e.titleNl}*${e.titleFr && e.titleFr !== e.titleNl ? ` / ${e.titleFr}` : ""}`);
+    lines.push(`    ${brands} | ${dates}${dateDetail}${e.url ? ` | ${e.url}` : ""}`);
   }
 
   lines.push("", 'Pick one: `event [name]` to use it as campaign source');
@@ -139,19 +168,36 @@ export function formatEventList(events: EventData[]): string {
  * Build AI context from event data — used by the wizard's AI recommendations.
  */
 export function eventToAiContext(event: EventData): string {
+  // Format specific dates
+  let datesInfo = "";
+  if (event.dates.length > 0) {
+    const uniqueDates = [...new Set(event.dates.map((d) => d.date))];
+    const formattedDates = uniqueDates.map((d) => {
+      const slots = event.dates.filter((s) => s.date === d);
+      const times = slots.map((s) => `${s.startTime.slice(0, 5)}-${s.endTime.slice(0, 5)}`).join(", ");
+      const totalCapacity = slots.reduce((s, sl) => s + sl.capacity, 0);
+      const totalUsed = slots.reduce((s, sl) => s + sl.capacityUsed, 0);
+      return `  ${d}: ${times} (capacity: ${totalUsed}/${totalCapacity})`;
+    });
+    datesInfo = `\nSpecific event dates and time slots:\n${formattedDates.join("\n")}`;
+    datesInfo += `\nTotal capacity remaining: ${event.dates.reduce((s, d) => s + (d.capacity - d.capacityUsed), 0)}`;
+  }
+
   return `
 Event: "${event.titleNl}" (FR: "${event.titleFr}")
 Type: ${event.type}
 Brands: ${event.brands.join(", ") || "not specified"}
-Dates: ${event.startDate?.split("T")[0] ?? "?"} to ${event.endDate?.split("T")[0] ?? "?"}
+Overall period: ${event.startDate?.split("T")[0] ?? "?"} to ${event.endDate?.split("T")[0] ?? "?"}
 Date text (NL): ${event.dateTextNl ?? "not set"}
-Date text (FR): ${event.dateTextFr ?? "not set"}
+Date text (FR): ${event.dateTextFr ?? "not set"}${datesInfo}
 Landing page: ${event.url ?? "https://www.shoppingeventvip.be"}
 Slug (NL): ${event.slugNl ?? "not set"}
 Slug (FR): ${event.slugFr ?? "not set"}
 
 This is a ${event.type === "online" ? "online sale" : "physical sale event"} for Shopping Event VIP, a Belgian fashion outlet platform.
-The campaign should promote this specific event/brand sale with its dates and landing page.
+The campaign should promote this specific event/brand sale.
+${event.type === "physical" ? "For physical events: include dates, location hints, and urgency (limited capacity/time slots) in ad copy." : "For online sales: include the sale end date and urgency in ad copy."}
+${event.dates.length > 0 ? `IMPORTANT: Use the specific event dates in headlines and descriptions. The dates are crucial for urgency.` : ""}
 `.trim();
 }
 
