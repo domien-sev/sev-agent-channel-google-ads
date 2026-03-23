@@ -353,13 +353,21 @@ async function handleReview(
     return reply(message, `Budget updated to €${rec.budget.dailyEuros}/day. Type \`confirm\` to create or keep adjusting.`);
   }
 
-  // Regenerate copy
-  if (lower.includes("regenerate") && lower.includes("copy")) {
+  // Regenerate copy (with optional direction)
+  if (lower.includes("regenerate") || (lower.includes("new") && lower.includes("copy"))) {
+    // Extract any additional direction after "regenerate copy"
+    const direction = message.text.trim()
+      .replace(/^(regenerate|new)\s*(copy|ads?|headlines?)?\s*/i, "")
+      .trim();
+
+    const userNotes = direction
+      ? `User direction: ${direction}. Generate completely new ad copy following this direction.`
+      : "Generate completely different ad copy from the previous suggestions. Try a different angle, tone, or USP emphasis.";
+
     const newRec = await generateRecommendations({
       source: session.sourceStructure,
       campaignType: session.campaignType,
-      brandOrProduct: "Shopping Event VIP — Belgian fashion outlet",
-      userNotes: "Generate completely different ad copy from the previous suggestions.",
+      userNotes,
     });
 
     // Keep user's budget adjustment
