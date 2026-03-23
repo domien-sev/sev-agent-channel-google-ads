@@ -117,7 +117,7 @@ export async function addNegativeKeywords(
         },
       },
     }));
-    const result = await client.mutateResource("campaignCriteria", ops);
+    const result = await (client as any).mutateResource("campaignCriteria", ops);
     return result.results.length;
   }
 
@@ -135,7 +135,7 @@ export async function addNegativeKeywords(
       },
     },
   }));
-  const result = await client.mutateResource("adGroupCriteria", ops);
+  const result = await (client as any).mutateResource("adGroupCriteria", ops);
   return result.results.length;
 }
 

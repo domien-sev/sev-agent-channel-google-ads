@@ -1,6 +1,10 @@
 /**
  * Bidirectional sync between Google Ads data and Directus collections.
  * Syncs keywords, search terms, audiences, and asset groups.
+ *
+ * Note: google_ads_* collections aren't in the typed Directus schema,
+ * so we use `(client as any).request(...)` for all Directus operations here.
+ * This will be cleaned up when the collections are added to @domien-sev/directus-sdk types.
  */
 import type { GoogleAdsClient } from "@domien-sev/ads-sdk";
 import type { DirectusClientManager } from "@domien-sev/directus-sdk";
@@ -14,13 +18,8 @@ import type {
   QualityComponent,
 } from "../types.js";
 
-/**
- * Helper to execute Directus SDK commands against untyped custom collections.
- * Centralizes the `as any` cast so individual sync functions stay clean.
- */
-function directusRequest<T>(client: ReturnType<DirectusClientManager["getClient"]>, command: unknown): Promise<T> {
-  return (client as any).request(command) as Promise<T>;
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyClient = any;
 
 /**
  * Sync keyword data from Google Ads to Directus.
@@ -60,7 +59,7 @@ export async function syncKeywords(
     results?: Array<Record<string, any>>;
   }>;
 
-  const client = directus.getClient("sev-ai");
+  const client: AnyClient = directus.getClient("sev-ai");
   let synced = 0;
 
   for (const batch of results) {
@@ -92,18 +91,14 @@ export async function syncKeywords(
       };
 
       try {
-        const existing = await directusRequest<Array<{ id?: string }>>(
-          client,
-          readItems("google_ads_keywords" as any, {
-            filter: { keyword_text: { _eq: keywordText }, campaign_id: { _eq: campaignId }, ad_group_id: { _eq: adGroupId } },
-            limit: 1,
-          }),
-        );
+        const existing = await client.request(
+          readItems("google_ads_keywords", { filter: { keyword_text: { _eq: keywordText }, campaign_id: { _eq: campaignId }, ad_group_id: { _eq: adGroupId } }, limit: 1 }),
+        ) as Array<{ id?: string }>;
 
         if (existing[0]?.id) {
-          await directusRequest(client, updateItem("google_ads_keywords" as any, existing[0].id, keywordData as any));
+          await client.request(updateItem("google_ads_keywords", existing[0].id, keywordData));
         } else {
-          await directusRequest(client, createItem("google_ads_keywords" as any, keywordData as any));
+          await client.request(createItem("google_ads_keywords", keywordData));
         }
         synced++;
       } catch {
@@ -146,7 +141,7 @@ export async function syncSearchTerms(
     results?: Array<Record<string, any>>;
   }>;
 
-  const client = directus.getClient("sev-ai");
+  const client: AnyClient = directus.getClient("sev-ai");
   let synced = 0;
 
   for (const batch of results) {
@@ -165,7 +160,7 @@ export async function syncSearchTerms(
       };
 
       try {
-        await directusRequest(client, createItem("google_ads_search_terms" as any, searchTermData as any));
+        await client.request(createItem("google_ads_search_terms", searchTermData));
         synced++;
       } catch {
         // Skip duplicates or missing collection — logged by caller
@@ -199,7 +194,7 @@ export async function syncAssetGroups(
     results?: Array<Record<string, any>>;
   }>;
 
-  const client = directus.getClient("sev-ai");
+  const client: AnyClient = directus.getClient("sev-ai");
   let synced = 0;
 
   for (const batch of results) {
@@ -219,18 +214,14 @@ export async function syncAssetGroups(
       };
 
       try {
-        const existing = await directusRequest<Array<{ id?: string }>>(
-          client,
-          readItems("google_ads_asset_groups" as any, {
-            filter: { resource_name: { _eq: assetGroupData.resource_name } },
-            limit: 1,
-          }),
-        );
+        const existing = await client.request(
+          readItems("google_ads_asset_groups", { filter: { resource_name: { _eq: assetGroupData.resource_name } }, limit: 1 }),
+        ) as Array<{ id?: string }>;
 
         if (existing[0]?.id) {
-          await directusRequest(client, updateItem("google_ads_asset_groups" as any, existing[0].id, assetGroupData as any));
+          await client.request(updateItem("google_ads_asset_groups", existing[0].id, assetGroupData));
         } else {
-          await directusRequest(client, createItem("google_ads_asset_groups" as any, assetGroupData as any));
+          await client.request(createItem("google_ads_asset_groups", assetGroupData));
         }
         synced++;
       } catch {

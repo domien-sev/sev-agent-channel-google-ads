@@ -114,7 +114,7 @@ async function handleCreateAudience(
 
   try {
     // Create custom audience via Google Ads API
-    const result = await agent.googleAds.mutateResource("customAudiences", [{
+    const result = await (agent.googleAds as any).mutateResource("customAudiences", [{
       create: {
         name: audienceName,
         type: "AUTO",
