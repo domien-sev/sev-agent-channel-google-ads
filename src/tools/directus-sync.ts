@@ -92,13 +92,13 @@ export async function syncKeywords(
 
       try {
         const existing = await client.request(
-          readItems("google_ads_keywords", { filter: { keyword_text: { _eq: keywordText }, campaign_id: { _eq: campaignId }, ad_group_id: { _eq: adGroupId } }, limit: 1 }),
+          readItems("google_ads_keywords" as any, { filter: { keyword_text: { _eq: keywordText }, campaign_id: { _eq: campaignId }, ad_group_id: { _eq: adGroupId } }, limit: 1 }),
         ) as Array<{ id?: string }>;
 
         if (existing[0]?.id) {
-          await client.request(updateItem("google_ads_keywords", existing[0].id, keywordData));
+          await client.request(updateItem("google_ads_keywords" as any, existing[0].id, keywordData));
         } else {
-          await client.request(createItem("google_ads_keywords", keywordData));
+          await client.request(createItem("google_ads_keywords" as any, keywordData));
         }
         synced++;
       } catch {
@@ -160,7 +160,7 @@ export async function syncSearchTerms(
       };
 
       try {
-        await client.request(createItem("google_ads_search_terms", searchTermData));
+        await client.request(createItem("google_ads_search_terms" as any, searchTermData));
         synced++;
       } catch {
         // Skip duplicates or missing collection — logged by caller
@@ -215,13 +215,13 @@ export async function syncAssetGroups(
 
       try {
         const existing = await client.request(
-          readItems("google_ads_asset_groups", { filter: { resource_name: { _eq: assetGroupData.resource_name } }, limit: 1 }),
+          readItems("google_ads_asset_groups" as any, { filter: { resource_name: { _eq: assetGroupData.resource_name } }, limit: 1 }),
         ) as Array<{ id?: string }>;
 
         if (existing[0]?.id) {
-          await client.request(updateItem("google_ads_asset_groups", existing[0].id, assetGroupData));
+          await client.request(updateItem("google_ads_asset_groups" as any, existing[0].id, assetGroupData));
         } else {
-          await client.request(createItem("google_ads_asset_groups", assetGroupData));
+          await client.request(createItem("google_ads_asset_groups" as any, assetGroupData));
         }
         synced++;
       } catch {
