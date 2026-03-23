@@ -45,20 +45,31 @@ async function directusFetch<T>(path: string): Promise<T> {
 export async function getActiveEvents(): Promise<EventData[]> {
   const now = new Date().toISOString();
 
+  const filter = encodeURIComponent(JSON.stringify({
+    status: { _eq: "published" },
+    expiration_date: { _gte: now },
+  }));
+  const fields = "id,type,status,url,start_date,expiration_date,event_translations.title,event_translations.languages_id,event_translations.date,event_translations.slug,brands";
+
   const events = await directusFetch<Array<Record<string, any>>>(
-    `/items/event?filter[status][_eq]=published&filter[expiration_date][_gte]=${now}&sort=-start_date&limit=20&fields=id,type,status,url,start_date,expiration_date,event_translations.title,event_translations.languages_id,event_translations.date,event_translations.slug,brands`,
+    `/items/event?filter=${filter}&sort=-start_date&limit=20&fields=${fields}`,
   );
 
-  // Fetch all brand names in one go
-  const brandIds = [...new Set(events.flatMap((e) => e.brands ?? []))];
+  // Fetch all brand names — use JSON filter to avoid URL length issues
+  const brandIds = [...new Set(events.flatMap((e) => e.brands ?? []))].map(String);
   const brandMap = new Map<string, string>();
 
   if (brandIds.length > 0) {
-    const brands = await directusFetch<Array<{ id: string; name: string }>>(
-      `/items/brand?filter[id][_in]=${brandIds.join(",")}&fields=id,name&limit=100`,
-    );
-    for (const b of brands) {
-      brandMap.set(String(b.id), b.name);
+    try {
+      const filter = encodeURIComponent(JSON.stringify({ id: { _in: brandIds } }));
+      const brands = await directusFetch<Array<{ id: string; name: string }>>(
+        `/items/brand?filter=${filter}&fields=id,name&limit=100`,
+      );
+      for (const b of brands) {
+        brandMap.set(String(b.id), b.name);
+      }
+    } catch {
+      // Brand lookup failed — continue without brand names
     }
   }
 
