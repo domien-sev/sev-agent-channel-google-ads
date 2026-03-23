@@ -49,34 +49,28 @@ export async function getActiveEvents(): Promise<EventData[]> {
     status: { _eq: "published" },
     expiration_date: { _gte: now },
   }));
-  const fields = "id,type,status,url,start_date,expiration_date,event_translations.title,event_translations.languages_id,event_translations.date,event_translations.slug,brands";
+  const fields = [
+    "id", "type", "status", "url", "start_date", "expiration_date",
+    "event_translations.title", "event_translations.languages_id",
+    "event_translations.date", "event_translations.slug",
+    "brands.brand_id.id", "brands.brand_id.name",
+  ].join(",");
 
   const events = await directusFetch<Array<Record<string, any>>>(
     `/items/event?filter=${filter}&sort=-start_date&limit=20&fields=${fields}`,
   );
 
-  // Fetch all brand names — use JSON filter to avoid URL length issues
-  const brandIds = [...new Set(events.flatMap((e) => e.brands ?? []))].map(String);
-  const brandMap = new Map<string, string>();
-
-  if (brandIds.length > 0) {
-    try {
-      const filter = encodeURIComponent(JSON.stringify({ id: { _in: brandIds } }));
-      const brands = await directusFetch<Array<{ id: string; name: string }>>(
-        `/items/brand?filter=${filter}&fields=id,name&limit=100`,
-      );
-      for (const b of brands) {
-        brandMap.set(String(b.id), b.name);
-      }
-    } catch {
-      // Brand lookup failed — continue without brand names
-    }
-  }
-
   return events.map((e) => {
     const translations = (e.event_translations ?? []) as Array<Record<string, string>>;
     const nl = translations.find((t) => t.languages_id?.startsWith("nl")) ?? {};
     const fr = translations.find((t) => t.languages_id?.startsWith("fr")) ?? {};
+
+    // Extract brand names from deep relation
+    const brandNames: string[] = [];
+    for (const b of e.brands ?? []) {
+      const name = b?.brand_id?.name;
+      if (name) brandNames.push(String(name));
+    }
 
     return {
       id: String(e.id),
@@ -91,7 +85,7 @@ export async function getActiveEvents(): Promise<EventData[]> {
       slugFr: fr.slug ?? null,
       dateTextNl: nl.date ?? null,
       dateTextFr: fr.date ?? null,
-      brands: (e.brands ?? []).map((id: string | number) => brandMap.get(String(id)) ?? String(id)),
+      brands: brandNames,
     };
   });
 }
