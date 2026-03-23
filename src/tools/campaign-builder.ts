@@ -63,7 +63,7 @@ function biddingStrategy(config: CampaignConfig): Record<string, unknown> {
 }
 
 async function createBudget(client: GoogleAdsClient, name: string, amountMicros: number): Promise<string> {
-  const result = await (client as any).mutateResource("campaignBudgets", [{
+  const result = await client.mutateResource("campaignBudgets", [{
     create: {
       name: `${name} Budget`,
       amountMicros: String(amountMicros),
@@ -79,7 +79,7 @@ async function createBaseCampaign(
   budgetResourceName: string,
   extraFields: Record<string, unknown> = {},
 ): Promise<string> {
-  const result = await (client as any).mutateResource("campaigns", [{
+  const result = await client.mutateResource("campaigns", [{
     create: {
       name: config.name,
       advertisingChannelType: channelType(config.type),
@@ -109,7 +109,7 @@ async function buildSearchCampaign(client: GoogleAdsClient, config: CampaignConf
   });
 
   // Create ad group
-  const adGroupResult = await (client as any).mutateResource("adGroups", [{
+  const adGroupResult = await client.mutateResource("adGroups", [{
     create: {
       name: config.adGroupName ?? `${config.name} - Ad Group 1`,
       campaign: campaignRn,
@@ -131,13 +131,13 @@ async function buildSearchCampaign(client: GoogleAdsClient, config: CampaignConf
         },
       },
     }));
-    await (client as any).mutateResource("adGroupCriteria", keywordOps);
+    await client.mutateResource("adGroupCriteria", keywordOps);
   }
 
   // Create responsive search ad if provided
   if (config.responsiveSearchAd) {
     const rsa = config.responsiveSearchAd;
-    await (client as any).mutateResource("adGroupAds", [{
+    await client.mutateResource("adGroupAds", [{
       create: {
         adGroup: adGroupRn,
         status: "PAUSED",
@@ -168,7 +168,7 @@ async function buildShoppingCampaign(client: GoogleAdsClient, config: CampaignCo
   });
 
   // Create ad group (Shopping doesn't need keywords)
-  const adGroupResult = await (client as any).mutateResource("adGroups", [{
+  const adGroupResult = await client.mutateResource("adGroups", [{
     create: {
       name: config.adGroupName ?? `${config.name} - Products`,
       campaign: campaignRn,
@@ -191,7 +191,7 @@ async function buildPMaxCampaign(client: GoogleAdsClient, config: CampaignConfig
 
   if (config.assetGroup) {
     const ag = config.assetGroup;
-    const assetGroupResult = await (client as any).mutateResource("assetGroups", [{
+    const assetGroupResult = await client.mutateResource("assetGroups", [{
       create: {
         name: ag.name,
         campaign: campaignRn,
@@ -212,7 +212,7 @@ async function buildPMaxCampaign(client: GoogleAdsClient, config: CampaignConfig
     ];
 
     if (textAssetOps.length > 0) {
-      await (client as any).mutateResource("assets", textAssetOps);
+      await client.mutateResource("assets", textAssetOps);
     }
   }
 
@@ -230,7 +230,7 @@ async function buildDisplayCampaign(client: GoogleAdsClient, config: CampaignCon
     },
   });
 
-  const adGroupResult = await (client as any).mutateResource("adGroups", [{
+  const adGroupResult = await client.mutateResource("adGroups", [{
     create: {
       name: config.adGroupName ?? `${config.name} - Display Group`,
       campaign: campaignRn,
@@ -251,7 +251,7 @@ async function buildYouTubeCampaign(client: GoogleAdsClient, config: CampaignCon
     advertisingChannelSubType: "VIDEO_ACTION",
   });
 
-  const adGroupResult = await (client as any).mutateResource("adGroups", [{
+  const adGroupResult = await client.mutateResource("adGroups", [{
     create: {
       name: config.adGroupName ?? `${config.name} - Video Group`,
       campaign: campaignRn,

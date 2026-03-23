@@ -16,7 +16,7 @@
     "@domien-sev/agent-sdk": "*",
     "@domien-sev/directus-sdk": "*",
     "@domien-sev/shared-types": "*",
-    "@domien-sev/ads-sdk": "*",
+    "@domien-sev/ads-sdk": "^0.2.0",
     "@directus/sdk": "^18.0.0",
     "@anthropic-ai/sdk": "^0.39.0"
   },
