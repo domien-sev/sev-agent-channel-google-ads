@@ -225,12 +225,6 @@ async function handleTypeSelection(
     'Example: `RiverWoods winter sale, shoppingeventvip.be/river-woods, drive registrations`',
     'Or: `Xandres outlet, 70% off designer fashion, target Belgium`',
   ].join("\n"));
-
-  session.recommendations = recommendations;
-  session.step = "reviewing";
-  sessions.set(key, session);
-
-  return reply(message, formatRecommendations(recommendations));
 }
 
 /** Step 2b: Handle user context for fresh campaign creation */
