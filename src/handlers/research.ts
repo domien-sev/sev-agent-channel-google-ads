@@ -206,7 +206,12 @@ async function runAccountAudit(
   // Check conversion tracking
   let conversionActionsCount = 0;
   for (const batch of conversionData) {
-    conversionActionsCount += (batch.results ?? []).length;
+    for (const row of batch.results ?? []) {
+      const allConv = Number(row.metrics?.allConversions ?? 0);
+      if (allConv > 0 || row.conversionAction?.status === "ENABLED") {
+        conversionActionsCount++;
+      }
+    }
   }
 
   // Calculate scores

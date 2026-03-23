@@ -224,11 +224,11 @@ export function conversionActions(): string {
       conversion_action.type,
       conversion_action.status,
       conversion_action.category,
-      metrics.conversions,
-      metrics.conversions_value
+      metrics.all_conversions,
+      metrics.all_conversions_value
     FROM conversion_action
     WHERE conversion_action.status = 'ENABLED'
-    ORDER BY metrics.conversions DESC
+    ORDER BY metrics.all_conversions DESC
   `.trim();
 }
 
