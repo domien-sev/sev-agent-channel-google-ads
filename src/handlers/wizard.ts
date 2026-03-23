@@ -45,8 +45,8 @@ interface WizardState {
   createdAt: number;
 }
 
-/** TTL for wizard sessions (15 minutes) */
-const WIZARD_TTL_MS = 15 * 60 * 1000;
+/** TTL for wizard sessions (2 hours) */
+const WIZARD_TTL_MS = 2 * 60 * 60 * 1000;
 
 /** Active wizard sessions keyed by "channel:user" */
 const sessions = new Map<string, WizardState>();
