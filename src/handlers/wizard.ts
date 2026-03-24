@@ -1,37 +1,50 @@
 /**
  * Campaign creation wizard — multi-step conversational flow in Slack.
+ * Posts rich Block Kit messages directly to Slack for buttons, fields, and sections.
+ * Falls back to text-only replies when SLACK_BOT_TOKEN is not configured.
  *
  * Flow:
- *   1. "wizard" → ask type or clone source
- *   2. User picks type or "clone [campaign]" → analyze source / set type
- *   3. AI generates recommendations → present to user
- *   4. User can modify → "adjust budget", "regenerate copy", "add/remove keyword"
+ *   1. "wizard" → buttons for type selection
+ *   2. User picks type (button/text) or "clone [campaign]" → analyze source
+ *   3. AI generates recommendations → rich review with action buttons
+ *   4. User can modify → text commands or button clicks
  *   5. "confirm" → create campaign (PAUSED)
  *   6. "cancel" → abort
  */
 import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
 import type { GoogleCampaignType } from "../types.js";
-import { analyzeCampaign, formatCampaignSummary } from "../tools/campaign-analyzer.js";
+import { analyzeCampaign } from "../tools/campaign-analyzer.js";
 import type { CampaignStructure } from "../tools/campaign-analyzer.js";
-import {
-  generateRecommendations,
-  formatRecommendations,
-} from "../tools/ai-recommendations.js";
+import { generateRecommendations } from "../tools/ai-recommendations.js";
 import type { WizardRecommendations } from "../tools/ai-recommendations.js";
 import { buildCampaign } from "../tools/campaign-builder.js";
-import { generateEditorCsv, formatCsvForSlack } from "../tools/csv-export.js";
+import { generateEditorCsv } from "../tools/csv-export.js";
 import {
   getActiveEvents,
   findEvent,
   findEventForBrand,
-  formatEventList,
   eventToAiContext,
   isEventSourceConfigured,
 } from "../tools/event-source.js";
 import type { CampaignConfig } from "../types.js";
-import * as gaql from "../tools/gaql.js";
-import { reply } from "../tools/reply.js";
+import { reply, postBlocks } from "../tools/reply.js";
+import type { DirectPostResponse } from "../tools/reply.js";
+import { isSlackConfigured, slackPost } from "../tools/slack.js";
+import {
+  wizardStartBlocks,
+  eventListBlocks,
+  sourceCampaignBlocks,
+  recommendationBlocks,
+  confirmationBlocks,
+  contextPromptBlocks,
+  csvExportBlocks,
+  errorBlock,
+  thinkingBlocks,
+} from "../tools/wizard-blocks.js";
+
+/** Wizard response: either text-based (for OpenClaw) or direct-posted (Block Kit) */
+type WizardResponse = AgentResponse | DirectPostResponse;
 
 /** Wizard states */
 type WizardStep = "awaiting_type" | "awaiting_context" | "analyzing" | "reviewing" | "confirmed";
@@ -68,6 +81,18 @@ function getSession(channelId: string, userId: string): WizardState | null {
   return session;
 }
 
+/** Post blocks if Slack is configured, otherwise fall back to text */
+async function postBlocksOrText(
+  message: RoutedMessage,
+  blocks: ReturnType<typeof wizardStartBlocks>,
+  fallbackText: string,
+): Promise<WizardResponse> {
+  if (isSlackConfigured()) {
+    return postBlocks(message, blocks, fallbackText);
+  }
+  return reply(message, fallbackText);
+}
+
 /** Check if a message should be handled by the wizard */
 export function isWizardMessage(text: string, channelId: string, userId: string): boolean {
   const lower = text.trim().toLowerCase();
@@ -80,7 +105,7 @@ export function isWizardMessage(text: string, channelId: string, userId: string)
 export async function handleWizard(
   agent: GoogleAdsAgent,
   message: RoutedMessage,
-): Promise<AgentResponse> {
+): Promise<WizardResponse> {
   const text = message.text.trim();
   const lower = text.toLowerCase();
   const key = sessionKey(message.channel_id, message.user_id);
@@ -95,7 +120,6 @@ export async function handleWizard(
   const existing = getSession(message.channel_id, message.user_id);
 
   if (!existing) {
-    // Direct commands — auto-start wizard and handle immediately
     if (lower.startsWith("clone ") || lower.startsWith("event ") || lower === "events") {
       const session: WizardState = {
         step: "awaiting_type",
@@ -122,12 +146,12 @@ export async function handleWizard(
   }
 }
 
-/** Step 1: Start the wizard */
+/** Step 1: Start the wizard — show buttons for type selection */
 async function startWizard(
-  agent: GoogleAdsAgent,
+  _agent: GoogleAdsAgent,
   message: RoutedMessage,
   key: string,
-): Promise<AgentResponse> {
+): Promise<WizardResponse> {
   const threadTs = message.thread_ts ?? message.ts;
 
   sessions.set(key, {
@@ -138,98 +162,40 @@ async function startWizard(
     createdAt: Date.now(),
   });
 
-  const lines = [
-    "*Campaign Creation Wizard*",
-    "",
-    "What would you like to create?",
-    "",
-    "*From event:*",
-    "  `events` — Browse active events from shoppingeventvip.be",
-    "  `event [brand/name]` — Create campaign for a specific event",
-    "",
-    "*New campaign:*",
-    "  `search` — Search ads on Google",
-    "  `shopping` — Product ads from Merchant Center",
-    "  `pmax` — Performance Max (all channels)",
-    "  `display` — Banner ads on Display Network",
-    "  `youtube` — Video ads on YouTube",
-    "",
-    "*Clone existing:*",
-    '  `clone [campaign name or ID]` — Copy structure from an existing campaign',
-    "",
-    "Or type `cancel` to abort.",
-  ];
-
-  if (!isEventSourceConfigured()) {
-    lines.splice(4, 3); // Remove event options if not configured
-  }
-
-  return reply(message, lines.join("\n"));
+  return postBlocksOrText(
+    message,
+    wizardStartBlocks(isEventSourceConfigured()),
+    "Campaign Creation Wizard — type `search`, `shopping`, `pmax`, `display`, `youtube`, `events`, or `clone [name]`",
+  );
 }
 
-/** Step 2: Handle type selection or clone request */
+/** Step 2: Handle type selection, event browsing, or clone */
 async function handleTypeSelection(
   agent: GoogleAdsAgent,
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<WizardResponse> {
   const lower = message.text.trim().toLowerCase();
 
   // Browse events
   if (lower === "events" || lower === "browse events") {
     try {
       const events = await getActiveEvents();
-      return reply(message, formatEventList(events));
+      return postBlocksOrText(message, eventListBlocks(events), `Active Events (${events.length})`);
     } catch (err) {
       return reply(message, `Could not fetch events: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  // Create from event
-  if (lower.startsWith("event ")) {
-    const eventQuery = message.text.trim().replace(/^event\s+/i, "").trim();
-    try {
-      const event = await findEvent(eventQuery);
-      if (!event) {
-        return reply(message, `Event "${eventQuery}" not found. Try \`events\` to browse active events.`);
-      }
+  // Create from event (by name or by ID from button click)
+  if (lower.startsWith("event ") || lower.startsWith("event_select:")) {
+    const eventQuery = message.text.trim()
+      .replace(/^event_select:/i, "")
+      .replace(/^event\s+/i, "")
+      .trim();
 
-      session.step = "analyzing";
-      sessions.set(key, session);
-
-      // Default to search campaign for events
-      session.campaignType = "search";
-
-      const recommendations = await generateRecommendations({
-        campaignType: "search",
-        brandOrProduct: eventToAiContext(event),
-      });
-
-      // Override URL with event URL if available
-      if (event.url) {
-        recommendations.finalUrl = event.url;
-      }
-
-      session.recommendations = recommendations;
-      session.step = "reviewing";
-      sessions.set(key, session);
-
-      return reply(message, [
-        `*Event found: "${event.titleNl}"*`,
-        `Brands: ${event.brands.join(", ") || "—"}`,
-        `Dates: ${event.startDate?.split("T")[0] ?? "?"} → ${event.endDate?.split("T")[0] ?? "?"}`,
-        `URL: ${event.url ?? "—"}`,
-        "",
-        "---",
-        "",
-        formatRecommendations(recommendations),
-      ].join("\n"));
-    } catch (err) {
-      session.step = "awaiting_type";
-      sessions.set(key, session);
-      return reply(message, `Error: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    return handleEventSelection(agent, message, session, key, eventQuery);
   }
 
   // Clone flow
@@ -238,111 +204,158 @@ async function handleTypeSelection(
     if (!target) {
       return reply(message, 'Usage: `clone [campaign name or ID]`\nExample: `clone 260309_RiverWoods_NL`');
     }
+    return handleClone(agent, message, session, key, target);
+  }
+
+  // Direct type selection
+  const typeMap: Record<string, GoogleCampaignType> = {
+    search: "search", shopping: "shopping", pmax: "pmax",
+    display: "display", youtube: "youtube",
+  };
+
+  const selectedType = typeMap[lower];
+  if (!selectedType) {
+    return reply(message, "Pick a type: `search`, `shopping`, `pmax`, `display`, `youtube`, or `clone [name]`");
+  }
+
+  session.campaignType = selectedType;
+  session.step = "awaiting_context";
+  sessions.set(key, session);
+
+  return postBlocksOrText(
+    message,
+    contextPromptBlocks(selectedType),
+    `Got it — *${selectedType}* campaign. Tell me about the campaign: brand/product, landing page, and goal.`,
+  );
+}
+
+/** Handle event selection — find event and generate recommendations */
+async function handleEventSelection(
+  agent: GoogleAdsAgent,
+  message: RoutedMessage,
+  session: WizardState,
+  key: string,
+  eventQuery: string,
+): Promise<WizardResponse> {
+  try {
+    // Try finding by ID first (from button click), then by name
+    const event = await findEvent(eventQuery);
+    if (!event) {
+      return reply(message, `Event "${eventQuery}" not found. Try \`events\` to browse.`);
+    }
+
+    // Post a "thinking" indicator
+    if (isSlackConfigured()) {
+      await slackPost(message.channel_id, {
+        text: "Generating recommendations...",
+        blocks: thinkingBlocks("Generating campaign recommendations"),
+        thread_ts: message.thread_ts ?? message.ts,
+      });
+    }
 
     session.step = "analyzing";
+    session.campaignType = "search";
     sessions.set(key, session);
 
-    // Find campaign by name or ID
-    const campaignId = await findCampaignId(agent, target);
-    if (!campaignId) {
-      session.step = "awaiting_type";
-      sessions.set(key, session);
-      return reply(message, `Campaign "${target}" not found. Try the exact name or numeric ID.`);
-    }
-
-    // Analyze the source campaign
-    const structure = await analyzeCampaign(agent.googleAds, campaignId);
-    if (!structure) {
-      session.step = "awaiting_type";
-      sessions.set(key, session);
-      return reply(message, `Could not analyze campaign ${campaignId}. Try a different campaign.`);
-    }
-
-    session.sourceStructure = structure;
-    session.campaignType = mapChannelType(structure.type);
-
-    // Auto-match: find the latest event for this brand
-    let eventContext: string | undefined;
-    let eventInfo = "";
-    let matchedEventUrl: string | null = null;
-    if (isEventSourceConfigured()) {
-      try {
-        const matchedEvent = await findEventForBrand(structure.name);
-        if (matchedEvent) {
-          eventContext = eventToAiContext(matchedEvent);
-          matchedEventUrl = matchedEvent.url;
-          eventInfo = [
-            "",
-            `*Event matched: "${matchedEvent.titleNl}"*`,
-            `Dates: ${matchedEvent.dateTextNl ?? matchedEvent.startDate?.split("T")[0] ?? "?"}`,
-            `Type: ${matchedEvent.type}`,
-            matchedEvent.url ? `URL: ${matchedEvent.url}` : "",
-          ].filter(Boolean).join("\n");
-        }
-      } catch {
-        // Non-critical — proceed without event data
-      }
-    }
-
-    // Generate AI recommendations with source + event context
     const recommendations = await generateRecommendations({
-      source: structure,
-      campaignType: structure.type,
-      brandOrProduct: eventContext,
+      campaignType: "search",
+      brandOrProduct: eventToAiContext(event),
     });
 
-    // Override URL with event URL if matched
-    if (matchedEventUrl) {
-      recommendations.finalUrl = matchedEventUrl;
-    }
+    if (event.url) recommendations.finalUrl = event.url;
 
     session.recommendations = recommendations;
     session.step = "reviewing";
     sessions.set(key, session);
 
-    return reply(message, [
-      formatCampaignSummary(structure),
-      eventInfo,
-      "---",
-      "",
-      formatRecommendations(recommendations),
-    ].filter(Boolean).join("\n"));
+    return postBlocksOrText(message, recommendationBlocks(recommendations), recommendations.campaignName);
+  } catch (err) {
+    session.step = "awaiting_type";
+    sessions.set(key, session);
+    return reply(message, `Error: ${err instanceof Error ? err.message : String(err)}`);
   }
+}
 
-  // Direct type selection
-  const typeMap: Record<string, GoogleCampaignType> = {
-    search: "search",
-    shopping: "shopping",
-    pmax: "pmax",
-    display: "display",
-    youtube: "youtube",
-  };
-
-  const selectedType = typeMap[lower];
-  if (!selectedType) {
-    return reply(message, [
-      "Please pick a campaign type: `search`, `shopping`, `pmax`, `display`, `youtube`",
-      'Or clone an existing campaign: `clone [name or ID]`',
-    ].join("\n"));
-  }
-
-  session.campaignType = selectedType;
+/** Handle clone — analyze source campaign, auto-match event, generate recommendations */
+async function handleClone(
+  agent: GoogleAdsAgent,
+  message: RoutedMessage,
+  session: WizardState,
+  key: string,
+  target: string,
+): Promise<WizardResponse> {
   session.step = "analyzing";
   sessions.set(key, session);
 
-  // Ask for context before generating
-  session.campaignType = selectedType;
-  session.step = "awaiting_context";
+  // Post thinking indicator
+  if (isSlackConfigured()) {
+    await slackPost(message.channel_id, {
+      text: "Analyzing campaign...",
+      blocks: thinkingBlocks("Analyzing source campaign and matching events"),
+      thread_ts: message.thread_ts ?? message.ts,
+    });
+  }
+
+  const campaignId = await findCampaignId(agent, target);
+  if (!campaignId) {
+    session.step = "awaiting_type";
+    sessions.set(key, session);
+    return reply(message, `Campaign "${target}" not found. Try the exact name or numeric ID.`);
+  }
+
+  const structure = await analyzeCampaign(agent.googleAds, campaignId);
+  if (!structure) {
+    session.step = "awaiting_type";
+    sessions.set(key, session);
+    return reply(message, `Could not analyze campaign ${campaignId}. Try a different one.`);
+  }
+
+  session.sourceStructure = structure;
+  session.campaignType = mapChannelType(structure.type);
+
+  // Auto-match event
+  let eventContext: string | undefined;
+  let eventInfo: { title: string; dates: string; type: string; url?: string } | undefined;
+  let matchedEventUrl: string | null = null;
+
+  if (isEventSourceConfigured()) {
+    try {
+      const matchedEvent = await findEventForBrand(structure.name);
+      if (matchedEvent) {
+        eventContext = eventToAiContext(matchedEvent);
+        matchedEventUrl = matchedEvent.url;
+        eventInfo = {
+          title: matchedEvent.titleNl,
+          dates: matchedEvent.dateTextNl ?? matchedEvent.startDate?.split("T")[0] ?? "?",
+          type: matchedEvent.type,
+          url: matchedEvent.url ?? undefined,
+        };
+      }
+    } catch { /* non-critical */ }
+  }
+
+  const recommendations = await generateRecommendations({
+    source: structure,
+    campaignType: structure.type,
+    brandOrProduct: eventContext,
+  });
+
+  if (matchedEventUrl) recommendations.finalUrl = matchedEventUrl;
+
+  session.recommendations = recommendations;
+  session.step = "reviewing";
   sessions.set(key, session);
 
-  return reply(message, [
-    `Got it — *${selectedType}* campaign.`,
-    "",
-    "Tell me about the campaign. What brand/product, landing page, and goal?",
-    "",
-    'Example: `RiverWoods winter sale, shoppingeventvip.be/river-woods, drive registrations`',
-    'Or: `Xandres outlet, 70% off designer fashion, target Belgium`',
-  ].join("\n"));
+  // Post source summary + recommendations as blocks
+  if (isSlackConfigured()) {
+    // Post source campaign info first
+    await postBlocks(message, sourceCampaignBlocks(structure, eventInfo), `Source: ${structure.name}`);
+    // Then post the recommendation with action buttons
+    return postBlocks(message, recommendationBlocks(recommendations), recommendations.campaignName);
+  }
+
+  // Text fallback
+  return reply(message, `Source: ${structure.name}\n---\n${recommendations.campaignName}`);
 }
 
 /** Step 2b: Handle user context for fresh campaign creation */
@@ -351,8 +364,16 @@ async function handleContext(
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<WizardResponse> {
   const userContext = message.text.trim();
+
+  if (isSlackConfigured()) {
+    await slackPost(message.channel_id, {
+      text: "Generating recommendations...",
+      blocks: thinkingBlocks("Generating campaign recommendations"),
+      thread_ts: message.thread_ts ?? message.ts,
+    });
+  }
 
   session.step = "analyzing";
   sessions.set(key, session);
@@ -366,7 +387,7 @@ async function handleContext(
   session.step = "reviewing";
   sessions.set(key, session);
 
-  return reply(message, formatRecommendations(recommendations));
+  return postBlocksOrText(message, recommendationBlocks(recommendations), recommendations.campaignName);
 }
 
 /** Step 3+: Handle review modifications */
@@ -375,16 +396,16 @@ async function handleReview(
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<WizardResponse> {
   const lower = message.text.trim().toLowerCase();
   const rec = session.recommendations!;
 
-  // Confirm → create campaign via API
+  // Confirm
   if (lower === "confirm" || lower === "yes" || lower === "go") {
     return confirmAndBuild(agent, message, session, key);
   }
 
-  // Export CSV for Google Ads Editor
+  // Export CSV
   if (lower.includes("export") || lower.includes("csv") || lower.includes("editor")) {
     return exportCsv(message, session, key);
   }
@@ -398,16 +419,23 @@ async function handleReview(
     return reply(message, `Budget updated to €${rec.budget.dailyEuros}/day. Type \`confirm\` to create or keep adjusting.`);
   }
 
-  // Regenerate copy (with optional direction)
+  // Regenerate copy
   if (lower.includes("regenerate") || (lower.includes("new") && lower.includes("copy"))) {
-    // Extract any additional direction after "regenerate copy"
     const direction = message.text.trim()
       .replace(/^(regenerate|new)\s*(copy|ads?|headlines?)?\s*/i, "")
       .trim();
 
+    if (isSlackConfigured()) {
+      await slackPost(message.channel_id, {
+        text: "Regenerating copy...",
+        blocks: thinkingBlocks("Regenerating ad copy"),
+        thread_ts: message.thread_ts ?? message.ts,
+      });
+    }
+
     const userNotes = direction
       ? `User direction: ${direction}. Generate completely new ad copy following this direction.`
-      : "Generate completely different ad copy from the previous suggestions. Try a different angle, tone, or USP emphasis.";
+      : "Generate completely different ad copy. Try a different angle, tone, or USP emphasis.";
 
     const newRec = await generateRecommendations({
       source: session.sourceStructure,
@@ -415,14 +443,12 @@ async function handleReview(
       userNotes,
     });
 
-    // Keep user's budget adjustment
     newRec.budget.dailyEuros = rec.budget.dailyEuros;
-    // Keep user's keyword edits
     newRec.keywords = rec.keywords;
 
     session.recommendations = newRec;
     sessions.set(key, session);
-    return reply(message, formatRecommendations(newRec));
+    return postBlocksOrText(message, recommendationBlocks(newRec), newRec.campaignName);
   }
 
   // Add keyword
@@ -430,46 +456,44 @@ async function handleReview(
   if (addKwMatch) {
     rec.keywords.push({ text: addKwMatch[1], matchType: "BROAD", group: "custom" });
     sessions.set(key, session);
-    return reply(message, `Added keyword \`${addKwMatch[1]}\`. Now ${rec.keywords.length} keywords total. Type \`confirm\` when ready.`);
+    return reply(message, `Added keyword \`${addKwMatch[1]}\`. Now ${rec.keywords.length} total.`);
   }
 
   // Remove keyword
   const rmKwMatch = message.text.trim().match(/remove\s+keyword\s+["']?(.+?)["']?\s*$/i);
   if (rmKwMatch) {
     const before = rec.keywords.length;
-    rec.keywords = rec.keywords.filter(
-      (k) => k.text.toLowerCase() !== rmKwMatch[1].toLowerCase(),
-    );
+    rec.keywords = rec.keywords.filter((k) => k.text.toLowerCase() !== rmKwMatch[1].toLowerCase());
     if (rec.keywords.length < before) {
       sessions.set(key, session);
-      return reply(message, `Removed keyword \`${rmKwMatch[1]}\`. ${rec.keywords.length} keywords remaining.`);
+      return reply(message, `Removed \`${rmKwMatch[1]}\`. ${rec.keywords.length} keywords remaining.`);
     }
     return reply(message, `Keyword \`${rmKwMatch[1]}\` not found.`);
   }
 
-  // Change campaign name
+  // Rename
   const nameMatch = message.text.trim().match(/(?:rename|name|set name)\s+(?:to\s+)?["']?(.+?)["']?\s*$/i);
   if (nameMatch) {
     rec.campaignName = nameMatch[1];
     sessions.set(key, session);
-    return reply(message, `Campaign name set to "${rec.campaignName}". Type \`confirm\` to create.`);
+    return reply(message, `Campaign name set to "${rec.campaignName}".`);
   }
 
-  // Change landing page / final URL
+  // Change URL
   const urlMatch = message.text.trim().match(/(?:url|link|landing\s*page|final\s*url)\s+(?:to\s+)?(https?:\/\/\S+)/i);
   if (urlMatch) {
     rec.finalUrl = urlMatch[1];
     sessions.set(key, session);
-    return reply(message, `Landing page set to \`${rec.finalUrl}\`. Type \`confirm\` or \`export csv\` when ready.`);
+    return reply(message, `Landing page set to \`${rec.finalUrl}\`.`);
   }
 
-  // Change path1/path2
+  // Change paths
   const pathMatch = message.text.trim().match(/(?:path|paths?)\s+(?:to\s+)?(\S+?)(?:\s*\/\s*(\S+))?\s*$/i);
   if (pathMatch) {
     rec.path1 = pathMatch[1].slice(0, 15);
     rec.path2 = pathMatch[2] ? pathMatch[2].slice(0, 15) : rec.path2;
     sessions.set(key, session);
-    return reply(message, `URL paths set to \`${rec.path1}\`${rec.path2 ? ` / \`${rec.path2}\`` : ""}. Type \`confirm\` or \`export csv\` when ready.`);
+    return reply(message, `URL paths set to \`${rec.path1}\`${rec.path2 ? ` / \`${rec.path2}\`` : ""}.`);
   }
 
   // Change locations
@@ -478,43 +502,30 @@ async function handleReview(
     rec.targeting.locations = locMatch[1].split(/[,\s]+/).map((l) => l.trim().toUpperCase()).filter(Boolean);
     rec.targeting.reasoning = "Manually set";
     sessions.set(key, session);
-    return reply(message, `Targeting set to ${rec.targeting.locations.join(", ")}. Type \`confirm\` or \`export csv\` when ready.`);
+    return reply(message, `Targeting set to ${rec.targeting.locations.join(", ")}.`);
   }
 
   // Show current state
   if (lower === "show" || lower === "status" || lower === "summary") {
-    return reply(message, formatRecommendations(rec));
+    return postBlocksOrText(message, recommendationBlocks(rec), rec.campaignName);
   }
 
-  // Unknown command in review mode
+  // Unknown command
   return reply(message, [
-    "I didn't understand that. While reviewing, you can:",
-    "",
-    "*Modify:*",
-    "  `adjust budget to €X` — change daily budget",
-    "  `url https://...` — change landing page",
-    "  `path outlet/sale` — change URL display paths",
-    "  `target BE, NL` — change location targeting",
-    "  `rename to [name]` — change campaign name",
-    "  `add keyword [text]` — add a keyword",
-    "  `remove keyword [text]` — remove a keyword",
-    "  `regenerate copy` — get new ad copy suggestions",
-    "",
-    "*Actions:*",
-    "  `show` — show current recommendation",
-    "  `confirm` — create via API (PAUSED)",
-    "  `export csv` — Google Ads Editor CSV",
-    "  `cancel` — abort wizard",
+    "While reviewing, you can:",
+    "  `adjust budget to €X` · `url https://...` · `path outlet/sale`",
+    "  `target BE, NL` · `rename to [name]` · `add/remove keyword [text]`",
+    "  `regenerate copy` · `show` · `confirm` · `export csv` · `cancel`",
   ].join("\n"));
 }
 
-/** Final step: create the campaign */
+/** Create campaign via Google Ads API */
 async function confirmAndBuild(
   agent: GoogleAdsAgent,
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<WizardResponse> {
   const rec = session.recommendations!;
   const type = session.campaignType ?? "search";
 
@@ -527,7 +538,6 @@ async function confirmAndBuild(
     startDate: new Date().toISOString().split("T")[0],
   };
 
-  // Add type-specific config
   if (type === "search") {
     config.adGroupName = `${rec.campaignName} - NL`;
     config.keywords = rec.keywords.map((k) => ({
@@ -553,7 +563,6 @@ async function confirmAndBuild(
     config.feedLabel = "online";
   }
 
-  // Set bidding from source
   if (session.sourceStructure?.bidding.targetRoas) {
     config.targetRoas = session.sourceStructure.bidding.targetRoas;
   }
@@ -563,51 +572,40 @@ async function confirmAndBuild(
 
   try {
     const result = await buildCampaign(agent.googleAds, config);
-
-    // Clean up session
     sessions.delete(key);
 
-    const lines: string[] = [
-      `*Campaign Created: "${rec.campaignName}"*`,
-      "",
-      `*Type:* ${type.toUpperCase()}`,
-      `*Budget:* €${rec.budget.dailyEuros}/day`,
-      `*Status:* PAUSED (awaiting approval)`,
-      `*Keywords:* ${rec.keywords.length}`,
-      `*Headlines:* ${rec.adCopy.nl.headlines.length} NL + ${rec.adCopy.fr.headlines.length} FR`,
-      "",
-      `*Resource:* \`${result.campaignResourceName}\``,
-    ];
-
-    if (result.adGroupResourceName) {
-      lines.push(`*Ad Group:* \`${result.adGroupResourceName}\``);
-    }
-    if (result.assetGroupResourceName) {
-      lines.push(`*Asset Group:* \`${result.assetGroupResourceName}\``);
-    }
-
-    lines.push(
-      "",
-      "_Campaign is PAUSED. Review in Google Ads and enable when ready._",
-      `_French ad group not yet created — run the wizard again or add manually._`,
+    return postBlocksOrText(
+      message,
+      confirmationBlocks({
+        campaignName: rec.campaignName,
+        type,
+        budget: rec.budget.dailyEuros,
+        keywords: rec.keywords.length,
+        headlinesNl: rec.adCopy.nl.headlines.length,
+        headlinesFr: rec.adCopy.fr.headlines.length,
+        campaignResource: result.campaignResourceName,
+        adGroupResource: result.adGroupResourceName,
+        assetGroupResource: result.assetGroupResourceName,
+      }),
+      `Campaign Created: ${rec.campaignName}`,
     );
-
-    return reply(message, lines.join("\n"));
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     agent.log.error(`Wizard campaign creation failed: ${errMsg}`);
-
-    // Don't clear session on failure — user can retry
-    return reply(message, `Failed to create campaign: ${errMsg}\n\nType \`confirm\` to retry or \`cancel\` to abort.`);
+    return postBlocksOrText(
+      message,
+      errorBlock(`Failed to create campaign: ${errMsg}\n\nType \`confirm\` to retry or \`cancel\` to abort.`),
+      `Error: ${errMsg}`,
+    );
   }
 }
 
-/** Export campaign as Google Ads Editor CSV */
+/** Export as Google Ads Editor CSV */
 async function exportCsv(
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<WizardResponse> {
   const rec = session.recommendations!;
 
   const csv = generateEditorCsv(rec, {
@@ -618,20 +616,19 @@ async function exportCsv(
     targetRoas: session.sourceStructure?.bidding.targetRoas ?? undefined,
   });
 
-  // Clean up session
   sessions.delete(key);
 
-  return reply(message, formatCsvForSlack(csv, rec.campaignName));
+  return postBlocksOrText(
+    message,
+    csvExportBlocks(csv, rec.campaignName),
+    `CSV export for ${rec.campaignName}`,
+  );
 }
 
 /** Find a campaign ID by name or numeric ID */
 async function findCampaignId(agent: GoogleAdsAgent, nameOrId: string): Promise<string | null> {
-  // If it's already a numeric ID
-  if (/^\d+$/.test(nameOrId)) {
-    return nameOrId;
-  }
+  if (/^\d+$/.test(nameOrId)) return nameOrId;
 
-  // Search by name
   const query = `
     SELECT campaign.id, campaign.name
     FROM campaign
@@ -649,19 +646,14 @@ async function findCampaignId(agent: GoogleAdsAgent, nameOrId: string): Promise<
       return String(row.campaign?.id ?? "");
     }
   }
-
   return null;
 }
 
 /** Map Google Ads channel type to our campaign type */
 function mapChannelType(type: string): GoogleCampaignType {
   const map: Record<string, GoogleCampaignType> = {
-    SEARCH: "search",
-    SHOPPING: "shopping",
-    PERFORMANCE_MAX: "pmax",
-    DISPLAY: "display",
-    VIDEO: "youtube",
+    SEARCH: "search", SHOPPING: "shopping", PERFORMANCE_MAX: "pmax",
+    DISPLAY: "display", VIDEO: "youtube",
   };
   return map[type] ?? "search";
 }
-

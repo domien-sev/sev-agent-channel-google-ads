@@ -44,6 +44,70 @@ async function main() {
       return;
     }
 
+    // Slack interaction endpoint — button clicks, menu selections
+    if (req.url === "/interactions" && req.method === "POST") {
+      // Respond immediately (Slack requires <3s)
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+
+      // Process asynchronously
+      try {
+        const rawBody = await readBody(req);
+        // Slack sends URL-encoded body with a `payload` field
+        const params = new URLSearchParams(rawBody);
+        const payloadStr = params.get("payload");
+        if (!payloadStr) return;
+
+        const payload = JSON.parse(payloadStr) as {
+          type: string;
+          user: { id: string };
+          channel: { id: string };
+          message?: { ts: string; thread_ts?: string };
+          actions?: Array<{ action_id: string; value: string }>;
+        };
+
+        if (payload.type !== "block_actions" || !payload.actions?.length) return;
+
+        const action = payload.actions[0];
+        const channelId = payload.channel.id;
+        const userId = payload.user.id;
+        const threadTs = payload.message?.thread_ts ?? payload.message?.ts ?? "";
+        const messageTs = payload.message?.ts ?? "";
+
+        // Map action_id to wizard text commands
+        let text = action.value;
+        if (action.action_id === "wizard_type") {
+          text = action.value; // "search", "shopping", etc.
+        } else if (action.action_id === "wizard_events") {
+          text = "events";
+        } else if (action.action_id === "wizard_event_select") {
+          text = `event_select:${action.value}`;
+        } else if (action.action_id === "wizard_confirm") {
+          text = "confirm";
+        } else if (action.action_id === "wizard_csv") {
+          text = "export csv";
+        } else if (action.action_id === "wizard_regenerate") {
+          text = "regenerate copy";
+        } else if (action.action_id === "wizard_cancel") {
+          text = "cancel";
+        }
+
+        // Build synthetic message and route to handler
+        const syntheticMessage = {
+          text,
+          channel_id: channelId,
+          user_id: userId,
+          ts: messageTs,
+          thread_ts: threadTs,
+        };
+
+        await agent.handleMessage(syntheticMessage as any);
+      } catch (err) {
+        console.error("Interaction handler error:", err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
+
     if (req.url === "/callbacks/task" && req.method === "POST") {
       try {
         const body = await readBody(req);

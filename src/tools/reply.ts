@@ -3,6 +3,8 @@
  * Slack truncates messages around 3000 characters.
  */
 import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
+import { slackPost, isSlackConfigured } from "./slack.js";
+import type { SlackBlock } from "./slack.js";
 
 const SLACK_MAX_CHARS = 2900; // Leave some margin under Slack's ~3000 limit
 
@@ -37,6 +39,39 @@ export function reply(message: RoutedMessage, text: string): SplitAgentResponse 
  *   3. Double newline (paragraph break)
  *   4. Single newline
  */
+/** Response type signaling the agent posted directly to Slack */
+export interface DirectPostResponse {
+  ok: true;
+  posted_directly: true;
+}
+
+/**
+ * Post Block Kit blocks directly to Slack. Returns a DirectPostResponse
+ * that tells OpenClaw not to post anything.
+ */
+export async function postBlocks(
+  message: RoutedMessage,
+  blocks: SlackBlock[],
+  fallbackText: string,
+): Promise<DirectPostResponse> {
+  if (!isSlackConfigured()) {
+    // Fallback: log warning, still return direct post response
+    console.warn("[reply] Slack not configured, blocks not posted");
+  } else {
+    // Split blocks into chunks of 50 (Slack max per message)
+    for (let i = 0; i < blocks.length; i += 50) {
+      const chunk = blocks.slice(i, i + 50);
+      await slackPost(message.channel_id, {
+        text: fallbackText,
+        blocks: chunk,
+        thread_ts: message.thread_ts ?? message.ts,
+      });
+    }
+  }
+
+  return { ok: true, posted_directly: true };
+}
+
 export function splitMessage(text: string, maxLen: number = SLACK_MAX_CHARS): string[] {
   if (text.length <= maxLen) return [text];
 

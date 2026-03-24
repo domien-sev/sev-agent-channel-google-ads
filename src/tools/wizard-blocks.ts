@@ -1,0 +1,291 @@
+/**
+ * Wizard-specific Block Kit builders.
+ * Converts wizard data into rich Slack messages with buttons, fields, and sections.
+ */
+import type { SlackBlock } from "./slack.js";
+import type { WizardRecommendations } from "./ai-recommendations.js";
+import type { EventData } from "./event-source.js";
+import type { CampaignStructure } from "./campaign-analyzer.js";
+import {
+  headerBlock,
+  sectionBlock,
+  sectionFields,
+  sectionWithAccessory,
+  dividerBlock,
+  contextBlock,
+  actionsBlock,
+  buttonElement,
+  confirmDialog,
+} from "./blocks.js";
+
+// --- Step 1: Wizard Start ---
+
+export function wizardStartBlocks(showEvents: boolean): SlackBlock[] {
+  const blocks: SlackBlock[] = [
+    headerBlock("Campaign Creation Wizard"),
+    sectionBlock("What would you like to create?"),
+    dividerBlock(),
+  ];
+
+  if (showEvents) {
+    blocks.push(
+      sectionBlock("*From event:*"),
+      actionsBlock([
+        buttonElement("Browse Events", "wizard_events", "events"),
+      ], "wizard_events_actions"),
+      dividerBlock(),
+    );
+  }
+
+  blocks.push(
+    sectionBlock("*New campaign:*"),
+    actionsBlock([
+      buttonElement("Search", "wizard_type", "search"),
+      buttonElement("Shopping", "wizard_type", "shopping"),
+      buttonElement("PMax", "wizard_type", "pmax"),
+      buttonElement("Display", "wizard_type", "display"),
+      buttonElement("YouTube", "wizard_type", "youtube"),
+    ], "wizard_type_actions"),
+    dividerBlock(),
+    contextBlock(["Type `clone [campaign name]` to copy an existing campaign, or `cancel` to abort."]),
+  );
+
+  return blocks;
+}
+
+// --- Step 2: Event List ---
+
+export function eventListBlocks(events: EventData[]): SlackBlock[] {
+  if (events.length === 0) {
+    return [sectionBlock("No active events found.")];
+  }
+
+  const blocks: SlackBlock[] = [
+    headerBlock(`Active Events (${events.length})`),
+  ];
+
+  for (const e of events.slice(0, 15)) {
+    const brands = e.brands.length > 0 ? e.brands.join(", ") : "—";
+    const dates = e.dateTextNl ?? `${e.startDate?.split("T")[0] ?? "?"} → ${e.endDate?.split("T")[0] ?? "?"}`;
+    const typeEmoji = e.type === "online" ? ":globe_with_meridians:" : ":round_pushpin:";
+
+    blocks.push(
+      sectionWithAccessory(
+        `${typeEmoji} *${e.titleNl}*\n${brands} · ${dates}`,
+        buttonElement("Use", "wizard_event_select", e.id),
+      ),
+    );
+  }
+
+  blocks.push(
+    dividerBlock(),
+    contextBlock(["Or type `event [brand name]` to search directly."]),
+  );
+
+  return blocks;
+}
+
+// --- Step 3: Source Campaign Summary ---
+
+export function sourceCampaignBlocks(
+  structure: CampaignStructure,
+  eventInfo?: { title: string; dates: string; type: string; url?: string },
+): SlackBlock[] {
+  const blocks: SlackBlock[] = [
+    headerBlock(`Source: ${structure.name}`),
+    sectionFields([
+      `*Type:*\n${structure.type}`,
+      `*Status:*\n${structure.status ?? "PAUSED"}`,
+      `*Budget:*\n€${structure.budget.daily.toFixed(2)}/day`,
+      `*Bidding:*\n${structure.bidding.strategy}`,
+    ]),
+  ];
+
+  // Show ad groups summary
+  for (const ag of structure.adGroups.slice(0, 3)) {
+    const kwCount = ag.keywords.length;
+    const adCount = ag.ads.length;
+    blocks.push(
+      sectionBlock(`*Ad Group: ${ag.name}*\n${kwCount} keywords · ${adCount} ads`),
+    );
+  }
+
+  if (eventInfo) {
+    blocks.push(
+      dividerBlock(),
+      sectionFields([
+        `*Event Matched:*\n${eventInfo.title}`,
+        `*Dates:*\n${eventInfo.dates}`,
+        `*Type:*\n${eventInfo.type}`,
+        eventInfo.url ? `*URL:*\n${eventInfo.url}` : `*URL:*\n—`,
+      ]),
+    );
+  }
+
+  return blocks;
+}
+
+// --- Step 4: Recommendation Review ---
+
+export function recommendationBlocks(rec: WizardRecommendations): SlackBlock[] {
+  const blocks: SlackBlock[] = [
+    headerBlock(rec.campaignName),
+    sectionFields([
+      `*Budget:*\n€${rec.budget.dailyEuros}/day`,
+      `*Targeting:*\n${rec.targeting.locations.join(", ")}`,
+      `*Landing Page:*\n${rec.finalUrl}`,
+      `*URL Paths:*\n${rec.path1}${rec.path2 ? ` / ${rec.path2}` : ""}`,
+    ]),
+    contextBlock([rec.budget.reasoning]),
+    dividerBlock(),
+  ];
+
+  // NL Ad Copy
+  blocks.push(sectionBlock("*Ad Copy (Dutch)*"));
+  const nlHeadlines = rec.adCopy.nl.headlines
+    .map((h) => `\`${h}\` (${h.length}/30)`)
+    .join("\n");
+  blocks.push(sectionBlock(`_Headlines (${rec.adCopy.nl.headlines.length}):_\n${nlHeadlines}`));
+
+  const nlDescs = rec.adCopy.nl.descriptions
+    .map((d) => `\`${d}\` (${d.length}/90)`)
+    .join("\n");
+  blocks.push(sectionBlock(`_Descriptions (${rec.adCopy.nl.descriptions.length}):_\n${nlDescs}`));
+
+  blocks.push(dividerBlock());
+
+  // FR Ad Copy
+  blocks.push(sectionBlock("*Ad Copy (French)*"));
+  const frHeadlines = rec.adCopy.fr.headlines
+    .map((h) => `\`${h}\` (${h.length}/30)`)
+    .join("\n");
+  blocks.push(sectionBlock(`_Headlines (${rec.adCopy.fr.headlines.length}):_\n${frHeadlines}`));
+
+  const frDescs = rec.adCopy.fr.descriptions
+    .map((d) => `\`${d}\` (${d.length}/90)`)
+    .join("\n");
+  blocks.push(sectionBlock(`_Descriptions (${rec.adCopy.fr.descriptions.length}):_\n${frDescs}`));
+
+  blocks.push(dividerBlock());
+
+  // Keywords (grouped)
+  const groups = new Map<string, typeof rec.keywords>();
+  for (const kw of rec.keywords) {
+    const existing = groups.get(kw.group) ?? [];
+    existing.push(kw);
+    groups.set(kw.group, existing);
+  }
+
+  const kwLines: string[] = [];
+  for (const [group, kws] of groups) {
+    kwLines.push(`_${group}:_ ${kws.map((k) => `\`${k.text}\` [${k.matchType}]`).join(", ")}`);
+  }
+  blocks.push(sectionBlock(`*Keywords (${rec.keywords.length}):*\n${kwLines.join("\n")}`));
+
+  blocks.push(dividerBlock());
+
+  // Action buttons
+  blocks.push(
+    actionsBlock([
+      buttonElement("Confirm (API)", "wizard_confirm", "confirm", "primary"),
+      buttonElement("Export CSV", "wizard_csv", "csv"),
+      buttonElement("Regenerate Copy", "wizard_regenerate", "regenerate"),
+      buttonElement("Cancel", "wizard_cancel", "cancel", "danger"),
+    ], "wizard_review_actions"),
+  );
+
+  // Modification hints
+  blocks.push(
+    contextBlock([
+      "Modify: `adjust budget to €X` · `url https://...` · `path outlet/sale` · `target BE, NL` · `rename to ...` · `add keyword ...` · `remove keyword ...`",
+    ]),
+  );
+
+  return blocks;
+}
+
+// --- Step 5: Confirmation ---
+
+export function confirmationBlocks(opts: {
+  campaignName: string;
+  type: string;
+  budget: number;
+  keywords: number;
+  headlinesNl: number;
+  headlinesFr: number;
+  campaignResource: string;
+  adGroupResource?: string;
+  assetGroupResource?: string;
+}): SlackBlock[] {
+  const blocks: SlackBlock[] = [
+    headerBlock("Campaign Created"),
+    sectionFields([
+      `*Name:*\n${opts.campaignName}`,
+      `*Type:*\n${opts.type.toUpperCase()}`,
+      `*Budget:*\n€${opts.budget}/day`,
+      `*Status:*\nPAUSED`,
+      `*Keywords:*\n${opts.keywords}`,
+      `*Headlines:*\n${opts.headlinesNl} NL + ${opts.headlinesFr} FR`,
+    ]),
+    dividerBlock(),
+    sectionBlock(`*Resource:* \`${opts.campaignResource}\``),
+  ];
+
+  if (opts.adGroupResource) {
+    blocks.push(sectionBlock(`*Ad Group:* \`${opts.adGroupResource}\``));
+  }
+  if (opts.assetGroupResource) {
+    blocks.push(sectionBlock(`*Asset Group:* \`${opts.assetGroupResource}\``));
+  }
+
+  blocks.push(
+    dividerBlock(),
+    contextBlock([
+      ":warning: Campaign is PAUSED. Review in Google Ads and enable when ready.",
+    ]),
+  );
+
+  return blocks;
+}
+
+// --- Error / Status blocks ---
+
+export function errorBlock(message: string): SlackBlock[] {
+  return [
+    sectionBlock(`:x: ${message}`),
+  ];
+}
+
+export function thinkingBlocks(action: string): SlackBlock[] {
+  return [
+    sectionBlock(`:hourglass_flowing_sand: ${action}...`),
+  ];
+}
+
+// --- Context prompt (step awaiting_context) ---
+
+export function contextPromptBlocks(campaignType: string): SlackBlock[] {
+  return [
+    headerBlock(`${campaignType.charAt(0).toUpperCase() + campaignType.slice(1)} Campaign`),
+    sectionBlock("Tell me about the campaign. What brand/product, landing page, and goal?"),
+    contextBlock([
+      "Example: `RiverWoods winter sale, shoppingeventvip.be/river-woods, drive registrations`",
+    ]),
+  ];
+}
+
+// --- CSV Export ---
+
+export function csvExportBlocks(csv: string, campaignName: string): SlackBlock[] {
+  // Slack code blocks max out around 3000 chars, truncate if needed
+  const truncated = csv.length > 2500 ? csv.slice(0, 2500) + "\n... (truncated)" : csv;
+
+  return [
+    headerBlock("Google Ads Editor CSV"),
+    sectionBlock(`Campaign: *${campaignName}*\nCopy the CSV below and import into Google Ads Editor.`),
+    sectionBlock(`\`\`\`\n${truncated}\n\`\`\``),
+    contextBlock([
+      "Paste into Google Ads Editor via *Account > Import > Paste text*",
+    ]),
+  ];
+}
