@@ -41,6 +41,16 @@ export interface EventData {
   dates: EventDate[];
 }
 
+/** Strip accents for fuzzy matching: "Méro" → "Mero" */
+function stripAccents(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/** Case-insensitive, accent-insensitive includes */
+function fuzzyIncludes(haystack: string, needle: string): boolean {
+  return stripAccents(haystack.toLowerCase()).includes(stripAccents(needle.toLowerCase()));
+}
+
 async function directusFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${DIRECTUS_URL}${path}`, {
     headers: {
@@ -141,9 +151,9 @@ export async function findEvent(query: string): Promise<EventData | null> {
   const events = await getActiveEvents();
   const match = events.find(
     (e) =>
-      e.titleNl.toLowerCase().includes(lower) ||
-      e.titleFr.toLowerCase().includes(lower) ||
-      e.brands.some((b) => b.toLowerCase().includes(lower)),
+      fuzzyIncludes(e.titleNl, lower) ||
+      fuzzyIncludes(e.titleFr, lower) ||
+      e.brands.some((b) => fuzzyIncludes(b, lower)),
   );
   if (match) return match;
 
