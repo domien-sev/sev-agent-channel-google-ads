@@ -15,12 +15,16 @@ export interface SplitAgentResponse extends AgentResponse {
  * Splits at logical boundaries: section dividers (---), blank lines between
  * sections (*Bold Header*), or line breaks as a last resort.
  */
+/** Delimiter used to separate messages in the text field */
+export const MESSAGE_SPLIT_DELIMITER = "\n\n===SPLIT===\n\n";
+
 export function reply(message: RoutedMessage, text: string): SplitAgentResponse {
   const messages = splitMessage(text, SLACK_MAX_CHARS);
   return {
     channel_id: message.channel_id,
     thread_ts: message.thread_ts ?? message.ts,
-    text: messages[0] ?? "",
+    // Join with delimiter so OpenClaw can split into separate Slack messages
+    text: messages.join(MESSAGE_SPLIT_DELIMITER),
     messages,
   };
 }
