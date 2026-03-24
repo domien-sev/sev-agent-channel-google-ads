@@ -2,7 +2,6 @@ import { BaseAgent } from "@domien-sev/agent-sdk";
 import type { AgentConfig } from "@domien-sev/agent-sdk";
 import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
 import { reply } from "./tools/reply.js";
-import type { DirectPostResponse } from "./tools/reply.js";
 import { GoogleAdsClient } from "@domien-sev/ads-sdk";
 
 import { handleResearch } from "./handlers/research.js";
@@ -68,7 +67,7 @@ export class GoogleAdsAgent extends BaseAgent {
     this.logger.info("Google Ads agent stopped");
   }
 
-  async handleMessage(message: RoutedMessage): Promise<AgentResponse | DirectPostResponse> {
+  async handleMessage(message: RoutedMessage): Promise<AgentResponse> {
     const text = message.text.trim().toLowerCase();
     this.logger.info(`Received: "${text}" from ${message.user_id}`);
 

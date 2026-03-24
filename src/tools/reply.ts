@@ -39,9 +39,9 @@ export function reply(message: RoutedMessage, text: string): SplitAgentResponse 
  *   3. Double newline (paragraph break)
  *   4. Single newline
  */
-/** Response type signaling the agent posted directly to Slack */
-export interface DirectPostResponse {
-  ok: true;
+/** Response type signaling the agent posted directly to Slack.
+ *  Extends AgentResponse for type compatibility with BaseAgent. */
+export interface DirectPostResponse extends AgentResponse {
   posted_directly: true;
 }
 
@@ -69,7 +69,12 @@ export async function postBlocks(
     }
   }
 
-  return { ok: true, posted_directly: true };
+  return {
+    channel_id: message.channel_id,
+    thread_ts: message.thread_ts ?? message.ts,
+    text: fallbackText,
+    posted_directly: true,
+  };
 }
 
 export function splitMessage(text: string, maxLen: number = SLACK_MAX_CHARS): string[] {
