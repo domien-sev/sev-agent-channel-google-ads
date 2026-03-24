@@ -15,11 +15,24 @@ async function main() {
       return healthHandler(req, res);
     }
 
-    if (req.url === "/message" && req.method === "POST") {
+    if (req.url?.startsWith("/message")) {
       try {
-        const body = await readBody(req);
-        const message = JSON.parse(body);
-        const response = await agent.handleMessage(message);
+        let message: Record<string, string>;
+        if (req.method === "POST") {
+          const body = await readBody(req);
+          message = JSON.parse(body);
+        } else {
+          // GET — parse query params (for MCP fetch tool compatibility)
+          const url = new URL(req.url, `http://localhost:${PORT}`);
+          message = {
+            text: url.searchParams.get("text") ?? "",
+            channel_id: url.searchParams.get("channel_id") ?? "",
+            user_id: url.searchParams.get("user_id") ?? "",
+            ts: url.searchParams.get("ts") ?? "",
+            thread_ts: url.searchParams.get("thread_ts") ?? "",
+          };
+        }
+        const response = await agent.handleMessage(message as any);
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(response));
       } catch (err) {
