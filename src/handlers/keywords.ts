@@ -3,6 +3,7 @@ import type { GoogleAdsAgent } from "../agent.js";
 import * as gaql from "../tools/gaql.js";
 import { findNegativeCandidates, addNegativeKeywords, getQualityScoreBreakdown } from "../tools/keyword-planner.js";
 import { syncKeywords, syncSearchTerms } from "../tools/directus-sync.js";
+import { reply } from "../tools/reply.js";
 
 /**
  * Keywords handler — research, bid management, negatives, search term analysis.
@@ -71,11 +72,7 @@ async function handleKeywordOverview(
   }
 
   if (keywords.length === 0) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No keywords found. Your campaigns may not have search keywords (e.g., Shopping or PMax only).",
-    };
+    return reply(message, "No keywords found. Your campaigns may not have search keywords (e.g., Shopping or PMax only).");
   }
 
   const totalCost = keywords.reduce((s, k) => s + k.cost, 0);
@@ -103,11 +100,7 @@ async function handleKeywordOverview(
     agent.log.warn(`Keyword sync failed: ${err instanceof Error ? err.message : String(err)}`),
   );
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handleKeywordReport(
@@ -141,11 +134,7 @@ async function handleKeywordReport(
     }
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handleSearchTerms(
@@ -205,11 +194,7 @@ async function handleSearchTerms(
     agent.log.warn(`Search term sync failed: ${err instanceof Error ? err.message : String(err)}`),
   );
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handleAddNegatives(
@@ -221,21 +206,13 @@ async function handleAddNegatives(
   const afterCommand = text.replace(/^add\s+negatives?\s*/i, "").trim();
 
   if (!afterCommand) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: 'Usage: `add negatives [term1], [term2], ...`\nOr run `search terms` first to see candidates.',
-    };
+    return reply(message, 'Usage: `add negatives [term1], [term2], ...`\nOr run `search terms` first to see candidates.');
   }
 
   const terms = afterCommand.split(",").map((t) => t.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
 
   if (terms.length === 0) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No keywords found. Separate multiple keywords with commas.",
-    };
+    return reply(message, "No keywords found. Separate multiple keywords with commas.");
   }
 
   // Get first enabled campaign to add negatives to
@@ -252,20 +229,12 @@ async function handleAddNegatives(
 
   const campaignRn = campaignResults[0]?.results?.[0]?.campaign?.resourceName;
   if (!campaignRn) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No enabled campaigns found to add negatives to.",
-    };
+    return reply(message, "No enabled campaigns found to add negatives to.");
   }
 
   const added = await addNegativeKeywords(agent.googleAds, campaignRn, terms);
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: `Added ${added} negative keywords: ${terms.map((t) => `"${t}"`).join(", ")}`,
-  };
+  return reply(message, `Added ${added} negative keywords: ${terms.map((t) => `"${t}"`).join(", ")}`);
 }
 
 function formatMatchType(type: string): string {

@@ -9,7 +9,7 @@
  *   5. "confirm" → create campaign (PAUSED)
  *   6. "cancel" → abort
  */
-import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
+import type { RoutedMessage } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
 import type { GoogleCampaignType } from "../types.js";
 import { analyzeCampaign, formatCampaignSummary } from "../tools/campaign-analyzer.js";
@@ -30,6 +30,8 @@ import {
 } from "../tools/event-source.js";
 import type { CampaignConfig } from "../types.js";
 import * as gaql from "../tools/gaql.js";
+import { reply } from "../tools/reply.js";
+import type { SplitAgentResponse } from "../tools/reply.js";
 
 /** Wizard states */
 type WizardStep = "awaiting_type" | "awaiting_context" | "analyzing" | "reviewing" | "confirmed";
@@ -78,7 +80,7 @@ export function isWizardMessage(text: string, channelId: string, userId: string)
 export async function handleWizard(
   agent: GoogleAdsAgent,
   message: RoutedMessage,
-): Promise<AgentResponse> {
+): Promise<SplitAgentResponse> {
   const text = message.text.trim();
   const lower = text.toLowerCase();
   const key = sessionKey(message.channel_id, message.user_id);
@@ -125,7 +127,7 @@ async function startWizard(
   agent: GoogleAdsAgent,
   message: RoutedMessage,
   key: string,
-): Promise<AgentResponse> {
+): Promise<SplitAgentResponse> {
   const threadTs = message.thread_ts ?? message.ts;
 
   sessions.set(key, {
@@ -171,7 +173,7 @@ async function handleTypeSelection(
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<SplitAgentResponse> {
   const lower = message.text.trim().toLowerCase();
 
   // Browse events
@@ -319,7 +321,7 @@ async function handleContext(
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<SplitAgentResponse> {
   const userContext = message.text.trim();
 
   session.step = "analyzing";
@@ -343,7 +345,7 @@ async function handleReview(
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<SplitAgentResponse> {
   const lower = message.text.trim().toLowerCase();
   const rec = session.recommendations!;
 
@@ -482,7 +484,7 @@ async function confirmAndBuild(
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<SplitAgentResponse> {
   const rec = session.recommendations!;
   const type = session.campaignType ?? "search";
 
@@ -575,7 +577,7 @@ async function exportCsv(
   message: RoutedMessage,
   session: WizardState,
   key: string,
-): Promise<AgentResponse> {
+): Promise<SplitAgentResponse> {
   const rec = session.recommendations!;
 
   const csv = generateEditorCsv(rec, {
@@ -633,11 +635,3 @@ function mapChannelType(type: string): GoogleCampaignType {
   return map[type] ?? "search";
 }
 
-/** Helper to build a reply */
-function reply(message: RoutedMessage, text: string): AgentResponse {
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text,
-  };
-}

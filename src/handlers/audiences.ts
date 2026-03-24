@@ -1,6 +1,7 @@
 import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
 import * as gaql from "../tools/gaql.js";
+import { reply } from "../tools/reply.js";
 
 /**
  * Audiences handler — custom segments, remarketing, in-market.
@@ -61,11 +62,7 @@ async function handleAudienceReport(
   }
 
   if (audiences.length === 0) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No audience data found. Your campaigns may not have audience targeting configured yet.",
-    };
+    return reply(message, "No audience data found. Your campaigns may not have audience targeting configured yet.");
   }
 
   const lines: string[] = [
@@ -81,11 +78,7 @@ async function handleAudienceReport(
     );
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handleCreateAudience(
@@ -96,18 +89,14 @@ async function handleCreateAudience(
   const nameMatch = text.match(/create\s+(?:audience|segment)\s+["']?(.+?)["']?\s*$/i);
 
   if (!nameMatch) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: [
-        'Usage: `create audience "Audience Name"`',
-        "",
-        "This creates a custom intent audience on Google Ads.",
-        "You can then assign it to campaigns for targeting.",
-        "",
-        'Example: `create audience "Fashion Shoppers Belgium"`',
-      ].join("\n"),
-    };
+    return reply(message, [
+      'Usage: `create audience "Audience Name"`',
+      "",
+      "This creates a custom intent audience on Google Ads.",
+      "You can then assign it to campaigns for targeting.",
+      "",
+      'Example: `create audience "Fashion Shoppers Belgium"`',
+    ].join("\n"));
   }
 
   const [, audienceName] = nameMatch;
@@ -122,23 +111,15 @@ async function handleCreateAudience(
       },
     }]);
 
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: [
-        `*Custom Audience Created: "${audienceName}"*`,
-        "",
-        `Resource: \`${result.results[0].resourceName}\``,
-        "",
-        "Next: Add this audience as targeting to your campaigns.",
-        "You can add keywords, URLs, and apps to refine the audience in Google Ads UI.",
-      ].join("\n"),
-    };
+    return reply(message, [
+      `*Custom Audience Created: "${audienceName}"*`,
+      "",
+      `Resource: \`${result.results[0].resourceName}\``,
+      "",
+      "Next: Add this audience as targeting to your campaigns.",
+      "You can add keywords, URLs, and apps to refine the audience in Google Ads UI.",
+    ].join("\n"));
   } catch (err) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: `Failed to create audience: ${err instanceof Error ? err.message : String(err)}`,
-    };
+    return reply(message, `Failed to create audience: ${err instanceof Error ? err.message : String(err)}`);
   }
 }

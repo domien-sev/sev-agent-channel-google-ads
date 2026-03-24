@@ -1,6 +1,8 @@
 import { BaseAgent } from "@domien-sev/agent-sdk";
 import type { AgentConfig } from "@domien-sev/agent-sdk";
-import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
+import type { RoutedMessage } from "@domien-sev/shared-types";
+import { reply } from "./tools/reply.js";
+import type { SplitAgentResponse } from "./tools/reply.js";
 import { GoogleAdsClient } from "@domien-sev/ads-sdk";
 
 import { handleResearch } from "./handlers/research.js";
@@ -66,7 +68,7 @@ export class GoogleAdsAgent extends BaseAgent {
     this.logger.info("Google Ads agent stopped");
   }
 
-  async handleMessage(message: RoutedMessage): Promise<AgentResponse> {
+  async handleMessage(message: RoutedMessage): Promise<SplitAgentResponse> {
     const text = message.text.trim().toLowerCase();
     this.logger.info(`Received: "${text}" from ${message.user_id}`);
 
@@ -119,19 +121,12 @@ export class GoogleAdsAgent extends BaseAgent {
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Handler error: ${errMsg}`);
-      return {
-        channel_id: message.channel_id,
-        thread_ts: message.thread_ts ?? message.ts,
-        text: `Error: ${errMsg}`,
-      };
+      return reply(message, `Error: ${errMsg}`);
     }
   }
 
-  private helpResponse(message: RoutedMessage): AgentResponse {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: [
+  private helpResponse(message: RoutedMessage): SplitAgentResponse {
+    return reply(message, [
         "*Google Ads Agent Commands:*",
         "",
         "*Research & Audit:*",
@@ -173,7 +168,6 @@ export class GoogleAdsAgent extends BaseAgent {
         "`request creatives for [campaign]` — Request from ads agent",
         "",
         "`help` — Show this message",
-      ].join("\n"),
-    };
+      ].join("\n"));
   }
 }

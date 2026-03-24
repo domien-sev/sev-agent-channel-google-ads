@@ -2,6 +2,7 @@ import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
 import * as gaql from "../tools/gaql.js";
 import { getQualityScoreBreakdown, findNegativeCandidates } from "../tools/keyword-planner.js";
+import { reply } from "../tools/reply.js";
 
 /** Campaigns with ROAS above this are candidates for budget increase */
 const HIGH_ROAS_THRESHOLD = 3;
@@ -157,11 +158,7 @@ async function handleFullOptimization(
     lines.push("No optimization opportunities found. Account is performing well.");
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handleBudgetRebalance(
@@ -200,11 +197,7 @@ async function handleBudgetRebalance(
   }
 
   if (campaigns.length === 0) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No active campaigns to rebalance.",
-    };
+    return reply(message, "No active campaigns to rebalance.");
   }
 
   const totalBudget = campaigns.reduce((s, c) => s + c.budget, 0);
@@ -240,11 +233,7 @@ async function handleBudgetRebalance(
 
   lines.push("", "_These are suggestions only. Budget changes must be applied manually or via approval flow._");
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handleQualityImprovement(
@@ -262,11 +251,7 @@ async function handleQualityImprovement(
 
   if (breakdown.lowScoreKeywords.length === 0) {
     lines.push("All keywords have quality scores above 5. No immediate action needed.");
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: lines.join("\n"),
-    };
+    return reply(message, lines.join("\n"));
   }
 
   // Group by issue type
@@ -304,9 +289,5 @@ async function handleQualityImprovement(
     lines.push("");
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }

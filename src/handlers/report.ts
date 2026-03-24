@@ -2,6 +2,7 @@ import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
 import * as gaql from "../tools/gaql.js";
 import { getTopShoppingProducts } from "../tools/feed.js";
+import { reply } from "../tools/reply.js";
 
 /**
  * Reporting handler — performance analytics, GAQL reports.
@@ -114,11 +115,7 @@ async function handlePerformanceReport(
     );
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handleQualityScoreReport(
@@ -146,11 +143,7 @@ async function handleQualityScoreReport(
   }
 
   if (total === 0) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No quality score data available. This is normal for Shopping and PMax campaigns.",
-    };
+    return reply(message, "No quality score data available. This is normal for Shopping and PMax campaigns.");
   }
 
   const lines: string[] = [
@@ -177,11 +170,7 @@ async function handleQualityScoreReport(
     lines.push("", `_€${lowQS.toFixed(2)} spent on keywords with QS ≤ 5. Run \`improve quality\` for optimization plan._`);
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handleShoppingReport(
@@ -191,11 +180,7 @@ async function handleShoppingReport(
   const products = await getTopShoppingProducts(agent.googleAds);
 
   if (products.length === 0) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No Shopping performance data found. Ensure you have active Shopping or PMax campaigns.",
-    };
+    return reply(message, "No Shopping performance data found. Ensure you have active Shopping or PMax campaigns.");
   }
 
   const totalRevenue = products.reduce((s, p) => s + p.revenue, 0);
@@ -216,11 +201,7 @@ async function handleShoppingReport(
     );
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function handlePMaxReport(
@@ -258,11 +239,7 @@ async function handlePMaxReport(
   }
 
   if (assetGroups.length === 0) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No Performance Max asset groups found.",
-    };
+    return reply(message, "No Performance Max asset groups found.");
   }
 
   const lines: string[] = [
@@ -278,11 +255,7 @@ async function handlePMaxReport(
     );
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 function formatType(type: string): string {

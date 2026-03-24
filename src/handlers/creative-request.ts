@@ -1,5 +1,6 @@
 import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
+import { reply } from "../tools/reply.js";
 
 /**
  * Creative request handler — delegates creative generation to sev-agent-ads.
@@ -16,11 +17,7 @@ export async function handleCreativeRequest(
   const match = text.match(/(?:request|need)\s+creatives?\s+for\s+["']?(.+?)["']?\s*$/i);
 
   if (!match) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: 'Usage: `request creatives for "Campaign Name"`\n\nThis delegates creative generation to the Ads Agent, which handles image and video creation.',
-    };
+    return reply(message, 'Usage: `request creatives for "Campaign Name"`\n\nThis delegates creative generation to the Ads Agent, which handles image and video creation.');
   }
 
   const [, campaignName] = match;
@@ -42,32 +39,23 @@ export async function handleCreativeRequest(
       },
     );
 
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: [
-        `*Creative Request Sent to Ads Agent*`,
-        "",
-        `Campaign: "${campaignName}"`,
-        `Task ID: ${task.id ?? "pending"}`,
-        `Status: ${task.status}`,
-        "",
-        "Requested formats:",
-        "  - Landscape 1.91:1 (Display/YouTube)",
-        "  - Square 1:1 (Discovery/PMax)",
-        "  - Portrait 4:5 (PMax)",
-        "",
-        "You'll be notified in `#ads-review` when creatives are ready for approval.",
-      ].join("\n"),
-    };
+    return reply(message, [
+      `*Creative Request Sent to Ads Agent*`,
+      "",
+      `Campaign: "${campaignName}"`,
+      `Task ID: ${task.id ?? "pending"}`,
+      `Status: ${task.status}`,
+      "",
+      "Requested formats:",
+      "  - Landscape 1.91:1 (Display/YouTube)",
+      "  - Square 1:1 (Discovery/PMax)",
+      "  - Portrait 4:5 (PMax)",
+      "",
+      "You'll be notified in `#ads-review` when creatives are ready for approval.",
+    ].join("\n"));
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     agent.log.error(`Creative request failed: ${errMsg}`);
-
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: `Failed to request creatives: ${errMsg}\n\nYou can also request directly in \`#ads-commands\`: \`generate ads for [product]\``,
-    };
+    return reply(message, `Failed to request creatives: ${errMsg}\n\nYou can also request directly in \`#ads-commands\`: \`generate ads for [product]\``);
   }
 }

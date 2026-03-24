@@ -2,6 +2,7 @@ import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
 import * as gaql from "../tools/gaql.js";
 import type { AccountHealthScore, CampaignAudit, GaqlRow } from "../types.js";
+import { reply } from "../tools/reply.js";
 
 /**
  * Research handler — account audit, campaign discovery, health scoring.
@@ -66,11 +67,7 @@ async function discoverCampaigns(
   }
 
   if (campaigns.length === 0) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: "No campaigns found in this Google Ads account.",
-    };
+    return reply(message, "No campaigns found in this Google Ads account.");
   }
 
   const lines: string[] = [
@@ -109,11 +106,7 @@ async function discoverCampaigns(
     lines.push("");
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 async function runAccountAudit(
@@ -281,11 +274,7 @@ async function runAccountAudit(
     // Non-critical
   }
 
-  return {
-    channel_id: message.channel_id,
-    thread_ts: message.thread_ts ?? message.ts,
-    text: lines.join("\n"),
-  };
+  return reply(message, lines.join("\n"));
 }
 
 function formatType(type: string): string {

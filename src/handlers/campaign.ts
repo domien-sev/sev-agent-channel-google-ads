@@ -2,6 +2,7 @@ import type { RoutedMessage, AgentResponse } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
 import { buildCampaign } from "../tools/campaign-builder.js";
 import type { CampaignConfig, GoogleCampaignType } from "../types.js";
+import { reply } from "../tools/reply.js";
 
 /**
  * Campaign creation handler.
@@ -26,22 +27,18 @@ export async function handleCampaign(
   );
 
   if (!match) {
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: [
-        "Usage: `create [type] campaign \"Campaign Name\"`",
-        "",
-        "Campaign types:",
-        "  `search` — Text ads on Google Search",
-        "  `shopping` — Product ads from Merchant Center",
-        "  `pmax` — Performance Max (all Google channels)",
-        "  `display` — Banner ads on Display Network",
-        "  `youtube` — Video ads on YouTube",
-        "",
-        'Example: `create search campaign "Summer Sale BE"`',
-      ].join("\n"),
-    };
+    return reply(message, [
+      "Usage: `create [type] campaign \"Campaign Name\"`",
+      "",
+      "Campaign types:",
+      "  `search` — Text ads on Google Search",
+      "  `shopping` — Product ads from Merchant Center",
+      "  `pmax` — Performance Max (all Google channels)",
+      "  `display` — Banner ads on Display Network",
+      "  `youtube` — Video ads on YouTube",
+      "",
+      'Example: `create search campaign "Summer Sale BE"`',
+    ].join("\n"));
   }
 
   const [, typeStr, campaignName] = match;
@@ -162,20 +159,11 @@ export async function handleCampaign(
         break;
     }
 
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: lines.join("\n"),
-    };
+    return reply(message, lines.join("\n"));
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     agent.log.error(`Campaign creation failed: ${errMsg}`);
-
-    return {
-      channel_id: message.channel_id,
-      thread_ts: message.thread_ts ?? message.ts,
-      text: `Failed to create campaign: ${errMsg}`,
-    };
+    return reply(message, `Failed to create campaign: ${errMsg}`);
   }
 }
 
