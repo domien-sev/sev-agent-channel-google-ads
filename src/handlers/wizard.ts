@@ -404,14 +404,16 @@ async function handleEventStep(
   const landingPageUrl = event.url
     ?? `https://www.shoppingeventvip.be/nl/event/${event.slugNl ?? event.titleNl.toLowerCase().replace(/\s+/g, "-")}`;
 
+  const isPhysical = event.type === "physical";
   const eventConfig: EventConfig = {
     event,
     campaignEndDate: event.suggestedCampaignEnd ?? event.endDate?.split("T")[0] ?? "",
-    targetingRadius: event.type === "physical" ? 30 : 0,
-    targetingLocation: event.postalCode
+    targetingRadius: isPhysical ? 30 : 0,
+    targetingLocation: isPhysical && event.postalCode
       ? `${event.locationText ?? event.postalCode} (${event.postalCode})`
-      : "Belgium",
+      : "Belgium (heel België)",
     landingPageUrl,
+    // Ecommerce always NL+FR, physical defaults to NL+FR but can be changed
     languages: ["nl", "fr"],
   };
 
@@ -514,13 +516,19 @@ async function handleEventConfirmation(
     return reply(message, `Targeting location set to "${ec.targetingLocation}". Type \`confirm\` to generate.`);
   }
 
-  // Change languages
+  // Change languages (ecommerce always NL+FR, physical can be changed)
   if (lower.includes("nl only") || lower === "nl") {
+    if (ec.event.type === "online") {
+      return reply(message, "Ecommerce campaigns always target NL + FR (all Belgium). Cannot change to single language.");
+    }
     ec.languages = ["nl"];
     sessions.set(key, session);
     return reply(message, "Language set to NL only. Type `confirm` to generate.");
   }
   if (lower.includes("fr only") || lower === "fr") {
+    if (ec.event.type === "online") {
+      return reply(message, "Ecommerce campaigns always target NL + FR (all Belgium). Cannot change to single language.");
+    }
     ec.languages = ["fr"];
     sessions.set(key, session);
     return reply(message, "Language set to FR only. Type `confirm` to generate.");
@@ -648,13 +656,14 @@ async function handleClone(
         const landingPageUrl = matchedEvent.url
           ?? `https://www.shoppingeventvip.be/nl/event/${matchedEvent.slugNl ?? matchedEvent.titleNl.toLowerCase().replace(/\s+/g, "-")}`;
 
+        const isPhysicalClone = matchedEvent.type === "physical";
         session.eventConfig = {
           event: matchedEvent,
           campaignEndDate: matchedEvent.suggestedCampaignEnd ?? matchedEvent.endDate?.split("T")[0] ?? "",
-          targetingRadius: matchedEvent.type === "physical" ? 30 : 0,
-          targetingLocation: matchedEvent.postalCode
+          targetingRadius: isPhysicalClone ? 30 : 0,
+          targetingLocation: isPhysicalClone && matchedEvent.postalCode
             ? `${matchedEvent.locationText ?? matchedEvent.postalCode} (${matchedEvent.postalCode})`
-            : "Belgium",
+            : "Belgium (heel België)",
           landingPageUrl,
           languages: ["nl", "fr"],
         };

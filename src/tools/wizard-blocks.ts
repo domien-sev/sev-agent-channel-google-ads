@@ -124,22 +124,26 @@ export function eventConfirmationBlocks(opts: {
 }): SlackBlock[] {
   const { event, campaignEndDate, targetingRadius, targetingLocation, landingPageUrl, languages = ["nl", "fr"] } = opts;
 
+  const isPhysical = event.type === "physical";
   const langDisplay = languages.length === 2 ? "NL + FR (separate ad groups)" : languages[0].toUpperCase();
+  const targetingDisplay = isPhysical
+    ? `${targetingRadius}km radius around ${targetingLocation}`
+    : `Belgium (heel België)`;
 
   const blocks: SlackBlock[] = [
     headerBlock(`Event: ${event.titleNl}`),
     sectionFields([
-      `*Type:*\n${event.type === "physical" ? ":round_pushpin: Physical" : ":globe_with_meridians: Online"}`,
+      `*Type:*\n${isPhysical ? ":round_pushpin: Physical Sale" : ":globe_with_meridians: Ecommerce Sale"}`,
       `*Brands:*\n${event.brands.join(", ") || "—"}`,
       `*Event Dates:*\n${event.dateTextNl ?? "—"}`,
-      `*Location:*\n${event.locationText ?? "—"}`,
+      ...(isPhysical ? [`*Location:*\n${event.locationText ?? "—"}`] : []),
     ]),
     dividerBlock(),
     headerBlock("Campaign Settings"),
     sectionFields([
       `*Campaign End Date:*\n${campaignEndDate}`,
-      `*Ad Targeting:*\n${targetingRadius}km radius around ${targetingLocation}`,
-      `*Languages:*\n${langDisplay}`,
+      `*Ad Targeting:*\n${targetingDisplay}`,
+      `*Languages:*\n${langDisplay}${!isPhysical ? " (required for ecommerce)" : ""}`,
       `*Landing Page:*\n${landingPageUrl}`,
     ]),
     dividerBlock(),
@@ -150,7 +154,9 @@ export function eventConfirmationBlocks(opts: {
       buttonElement("Cancel", "wizard_cancel", "cancel", "danger"),
     ], "wizard_event_confirm_actions"),
     contextBlock([
-      "Modify: `radius 50km` · `end date YYYY-MM-DD` · `nl only` / `fr only` / `nl+fr` · `url https://...` · `confirm`",
+      isPhysical
+        ? "Modify: `radius 50km` · `end date YYYY-MM-DD` · `nl only` / `fr only` / `nl+fr` · `url https://...` · `confirm`"
+        : "Modify: `end date YYYY-MM-DD` · `url https://...` · `confirm` (ecommerce: all Belgium, NL+FR always)",
     ]),
   ];
 
