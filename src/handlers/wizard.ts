@@ -178,6 +178,12 @@ export async function handleWizard(
     return reply(message, "Wizard cancelled.");
   }
 
+  // "wizard" always starts fresh (clears stale sessions)
+  if (lower === "wizard" || lower.startsWith("campaign wizard")) {
+    sessions.delete(key);
+    return startWizard(agent, message, key);
+  }
+
   // New wizard or existing session
   const existing = getSession(message.channel_id, message.user_id);
 
