@@ -113,9 +113,52 @@ async function createBaseCampaign(
         updateMask: "end_date",
       }]);
     } catch (err) {
-      // Non-critical — campaign is created, end date just wasn't set
       console.warn(`Failed to set end date: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  // Add geo targeting
+  try {
+    if (config.proximityRadius && config.proximityAddress) {
+      // Radius targeting around a specific address
+      await client.mutateResource("campaignCriteria", [{
+        create: {
+          campaign: campaignRn,
+          proximity: {
+            address: {
+              street_address: config.proximityAddress,
+              postal_code: config.proximityPostalCode ?? "",
+              country_code: config.targetCountry ?? "BE",
+            },
+            radius: config.proximityRadius,
+            radius_units: "KILOMETERS",
+          },
+        },
+      }]);
+      console.log(`[campaign-builder] Set ${config.proximityRadius}km radius around ${config.proximityAddress}`);
+    } else {
+      // Country-level targeting (default: Belgium)
+      const countryCode = config.targetCountry ?? "BE";
+      const geoConstantMap: Record<string, string> = {
+        BE: "geoTargetConstants/2056",
+        NL: "geoTargetConstants/2528",
+        FR: "geoTargetConstants/2250",
+        DE: "geoTargetConstants/2276",
+      };
+      const geoConstant = geoConstantMap[countryCode] ?? geoConstantMap.BE;
+
+      await client.mutateResource("campaignCriteria", [{
+        create: {
+          campaign: campaignRn,
+          location: {
+            geo_target_constant: geoConstant,
+          },
+        },
+      }]);
+      console.log(`[campaign-builder] Set country targeting: ${countryCode}`);
+    }
+  } catch (err) {
+    console.warn(`[campaign-builder] Geo targeting failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return campaignRn;

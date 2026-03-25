@@ -1025,6 +1025,10 @@ async function confirmAndBuild(
     }
   }
 
+  // Build geo targeting from event config
+  const ec = session.eventConfig;
+  const isPhysicalEvent = ec?.event.type === "physical";
+
   const config: CampaignConfig = {
     type,
     name: rec.campaignName,
@@ -1033,6 +1037,13 @@ async function confirmAndBuild(
     languages,
     startDate: new Date().toISOString().split("T")[0],
     ...(endDate && { endDate }),
+    targetCountry: "BE",
+    // Physical events: radius around venue. Ecommerce: all Belgium.
+    ...(isPhysicalEvent && ec?.event.locationText && ec?.targetingRadius > 0 && {
+      proximityRadius: ec.targetingRadius,
+      proximityAddress: ec.event.locationText,
+      proximityPostalCode: ec.event.postalCode ?? undefined,
+    }),
   };
 
   if (type === "search") {
@@ -1078,6 +1089,29 @@ async function confirmAndBuild(
     if (type === "search" && languages.length > 1 && result.campaignResourceName) {
       const secondLang = languages[1] as "nl" | "fr";
       const secondCopy = rec.adCopy[secondLang] ?? rec.adCopy.fr;
+
+      // Build FR-specific URL: replace /nl/ with /fr/ in the landing page
+      let frFinalUrl = finalUrl;
+      if (secondLang === "fr") {
+        // If using RedTrack, create a separate FR RedTrack campaign
+        const frLandingUrl = rec.finalUrl.replace("/nl/", "/fr/");
+        if (isRedTrackConfigured()) {
+          const frRt = await createRedTrackCampaign({
+            brand: extractBrand(rec.campaignName),
+            eventType: ec?.event.type ?? "physical",
+            landingPageUrl: frLandingUrl,
+          }).catch(() => null);
+          if (frRt) {
+            frFinalUrl = frRt.trackingUrl;
+            console.log(`[wizard] FR RedTrack campaign: ${frRt.campaignId}`);
+          } else {
+            frFinalUrl = frLandingUrl;
+          }
+        } else {
+          frFinalUrl = frLandingUrl;
+        }
+      }
+
       try {
         // Create FR ad group
         const frAdGroupResult = await agent.googleAds.mutateResource("adGroups", [{
@@ -1116,7 +1150,7 @@ async function confirmAndBuild(
                     path1: rec.path1,
                     path2: rec.path2,
                   },
-                  final_urls: [finalUrl],
+                  final_urls: [frFinalUrl],
                 },
               },
             }]);

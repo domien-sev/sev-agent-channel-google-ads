@@ -175,4 +175,9 @@ export interface CampaignConfig {
   // YouTube-specific
   videoId?: string;
   companionBannerUrl?: string;
+  // Geo targeting
+  targetCountry?: string;
+  proximityRadius?: number;
+  proximityAddress?: string;
+  proximityPostalCode?: string;
 }
