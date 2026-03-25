@@ -165,7 +165,7 @@ async function buildSearchCampaign(client: GoogleAdsClient, config: CampaignConf
       await client.mutateResource("adGroupAds", [{
         create: {
           ad_group: adGroupRn,
-          status: "PAUSED",
+          status: "ENABLED",
           ad: {
             responsive_search_ad: {
               headlines: rsa.headlines.map((h) => ({ text: h })),

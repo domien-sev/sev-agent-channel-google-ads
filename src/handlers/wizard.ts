@@ -1079,7 +1079,7 @@ async function confirmAndBuild(
             await agent.googleAds.mutateResource("adGroupAds", [{
               create: {
                 ad_group: frAdGroupRn,
-                status: "PAUSED",
+                status: "ENABLED",
                 ad: {
                   responsive_search_ad: {
                     headlines: secondCopy.headlines.slice(0, 15).map((h) => ({ text: h })),
@@ -1588,7 +1588,7 @@ async function confirmPendingAd(
     await agent.googleAds.mutateResource("adGroupAds", [{
       create: {
         ad_group: created.adGroupResourceName,
-        status: "PAUSED",
+        status: "ENABLED",
         ad: {
           responsive_search_ad: {
             headlines: pending.headlines.map((h) => ({ text: h })),
