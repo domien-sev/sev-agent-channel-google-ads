@@ -76,6 +76,8 @@ interface EventConfig {
   targetingRadius: number;
   targetingLocation: string;
   landingPageUrl: string;
+  landingPageUrlFr?: string;
+  languages: ("nl" | "fr")[];
 }
 
 interface WizardState {
@@ -422,6 +424,7 @@ async function handleEventStep(
       targetingRadius: eventConfig.targetingRadius,
       targetingLocation: eventConfig.targetingLocation,
       landingPageUrl: eventConfig.landingPageUrl,
+      languages: eventConfig.languages,
     }),
     `Event: ${event.titleNl}`,
   );
@@ -506,6 +509,23 @@ async function handleEventConfirmation(
     ec.targetingLocation = locMatch[1].trim();
     sessions.set(key, session);
     return reply(message, `Targeting location set to "${ec.targetingLocation}". Type \`confirm\` to generate.`);
+  }
+
+  // Change languages
+  if (lower.includes("nl only") || lower === "nl") {
+    ec.languages = ["nl"];
+    sessions.set(key, session);
+    return reply(message, "Language set to NL only. Type `confirm` to generate.");
+  }
+  if (lower.includes("fr only") || lower === "fr") {
+    ec.languages = ["fr"];
+    sessions.set(key, session);
+    return reply(message, "Language set to FR only. Type `confirm` to generate.");
+  }
+  if (lower.includes("nl+fr") || lower.includes("nl fr") || lower.includes("both")) {
+    ec.languages = ["nl", "fr"];
+    sessions.set(key, session);
+    return reply(message, "Languages set to NL + FR (separate ad groups). Type `confirm` to generate.");
   }
 
   // Show current config
@@ -633,6 +653,7 @@ async function handleClone(
             ? `${matchedEvent.locationText ?? matchedEvent.postalCode} (${matchedEvent.postalCode})`
             : "Belgium",
           landingPageUrl,
+          languages: ["nl", "fr"],
         };
         session.step = "confirming_event";
         sessions.set(key, session);
@@ -925,25 +946,32 @@ async function confirmAndBuild(
   const rec = session.recommendations!;
   const type = session.campaignType ?? "search";
 
+  // Use event config languages if available, otherwise default to NL+FR
+  const languages = session.eventConfig?.languages ?? ["nl", "fr"];
+  const endDate = session.eventConfig?.campaignEndDate ?? rec.endDate;
+
   const config: CampaignConfig = {
     type,
     name: rec.campaignName,
     dailyBudgetMicros: Math.round(rec.budget.dailyEuros * 1_000_000),
     locations: rec.targeting.locations,
-    languages: ["nl", "fr"],
+    languages,
     startDate: new Date().toISOString().split("T")[0],
-    ...(rec.endDate && { endDate: rec.endDate }),
+    ...(endDate && { endDate }),
   };
 
   if (type === "search") {
-    config.adGroupName = `${rec.campaignName} - NL`;
+    // First ad group uses the first language
+    const primaryLang = languages[0] ?? "nl";
+    const primaryCopy = rec.adCopy[primaryLang as "nl" | "fr"] ?? rec.adCopy.nl;
+    config.adGroupName = `${rec.campaignName} - ${primaryLang.toUpperCase()}`;
     config.keywords = rec.keywords.map((k) => ({
       text: k.text,
       matchType: k.matchType as "EXACT" | "PHRASE" | "BROAD",
     }));
     config.responsiveSearchAd = {
-      headlines: rec.adCopy.nl.headlines.slice(0, 15),
-      descriptions: rec.adCopy.nl.descriptions.slice(0, 4),
+      headlines: primaryCopy.headlines.slice(0, 15),
+      descriptions: primaryCopy.descriptions.slice(0, 4),
       finalUrl: rec.finalUrl,
       path1: rec.path1,
       path2: rec.path2,
@@ -969,6 +997,63 @@ async function confirmAndBuild(
 
   try {
     const result = await buildCampaign(agent.googleAds, config);
+
+    // Create second ad group for second language (if NL+FR and search type)
+    let frAdGroupCreated = false;
+    if (type === "search" && languages.length > 1 && result.campaignResourceName) {
+      const secondLang = languages[1] as "nl" | "fr";
+      const secondCopy = rec.adCopy[secondLang] ?? rec.adCopy.fr;
+      try {
+        // Create FR ad group
+        const frAdGroupResult = await agent.googleAds.mutateResource("adGroups", [{
+          create: {
+            name: `${rec.campaignName} - ${secondLang.toUpperCase()}`,
+            campaign: result.campaignResourceName,
+            type: "SEARCH_STANDARD",
+            status: "ENABLED",
+          },
+        }]);
+        const frAdGroupRn = frAdGroupResult.results[0].resourceName;
+
+        // Add same keywords
+        if (rec.keywords.length > 0) {
+          const kwOps = rec.keywords.map((k) => ({
+            create: {
+              ad_group: frAdGroupRn,
+              status: "ENABLED",
+              keyword: { text: k.text, match_type: k.matchType },
+            },
+          }));
+          await agent.googleAds.mutateResource("adGroupCriteria", kwOps);
+        }
+
+        // Create FR responsive search ad (non-fatal)
+        if (secondCopy.headlines.length > 0) {
+          try {
+            await agent.googleAds.mutateResource("adGroupAds", [{
+              create: {
+                ad_group: frAdGroupRn,
+                status: "PAUSED",
+                ad: {
+                  responsive_search_ad: {
+                    headlines: secondCopy.headlines.slice(0, 15).map((h) => ({ text: h })),
+                    descriptions: secondCopy.descriptions.slice(0, 4).map((d) => ({ text: d })),
+                    path1: rec.path1,
+                    path2: rec.path2,
+                  },
+                  final_urls: [rec.finalUrl],
+                },
+              },
+            }]);
+          } catch (adErr) {
+            console.warn(`[wizard] FR ad creation failed (non-fatal): ${adErr instanceof Error ? adErr.message : String(adErr)}`);
+          }
+        }
+        frAdGroupCreated = true;
+      } catch (err) {
+        console.warn(`[wizard] FR ad group creation failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     // Keep session alive for post-creation commands
     session.step = "created";

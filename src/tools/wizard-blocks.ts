@@ -120,8 +120,11 @@ export function eventConfirmationBlocks(opts: {
   targetingRadius: number;
   targetingLocation: string;
   landingPageUrl: string;
+  languages?: ("nl" | "fr")[];
 }): SlackBlock[] {
-  const { event, campaignEndDate, targetingRadius, targetingLocation, landingPageUrl } = opts;
+  const { event, campaignEndDate, targetingRadius, targetingLocation, landingPageUrl, languages = ["nl", "fr"] } = opts;
+
+  const langDisplay = languages.length === 2 ? "NL + FR (separate ad groups)" : languages[0].toUpperCase();
 
   const blocks: SlackBlock[] = [
     headerBlock(`Event: ${event.titleNl}`),
@@ -130,14 +133,13 @@ export function eventConfirmationBlocks(opts: {
       `*Brands:*\n${event.brands.join(", ") || "—"}`,
       `*Event Dates:*\n${event.dateTextNl ?? "—"}`,
       `*Location:*\n${event.locationText ?? "—"}`,
-      `*Postal Code:*\n${event.postalCode ?? "—"}`,
-      `*Country:*\n${event.country ?? "—"}`,
     ]),
     dividerBlock(),
     headerBlock("Campaign Settings"),
     sectionFields([
       `*Campaign End Date:*\n${campaignEndDate}`,
       `*Ad Targeting:*\n${targetingRadius}km radius around ${targetingLocation}`,
+      `*Languages:*\n${langDisplay}`,
       `*Landing Page:*\n${landingPageUrl}`,
     ]),
     dividerBlock(),
@@ -148,7 +150,7 @@ export function eventConfirmationBlocks(opts: {
       buttonElement("Cancel", "wizard_cancel", "cancel", "danger"),
     ], "wizard_event_confirm_actions"),
     contextBlock([
-      "Modify: `radius 50km` · `end date YYYY-MM-DD` · `url https://...` · or type `confirm` to generate ad copy",
+      "Modify: `radius 50km` · `end date YYYY-MM-DD` · `nl only` / `fr only` / `nl+fr` · `url https://...` · `confirm`",
     ]),
   ];
 
