@@ -796,36 +796,12 @@ async function handleReview(
     return reply(message, `Budget updated to €${rec.budget.dailyEuros}/day. Type \`confirm\` to create or keep adjusting.`);
   }
 
-  // Regenerate copy
+  // Regenerate copy (explicit or conversational feedback)
   if (lower.includes("regenerate") || (lower.includes("new") && lower.includes("copy"))) {
     const direction = message.text.trim()
       .replace(/^(regenerate|new)\s*(copy|ads?|headlines?)?\s*/i, "")
       .trim();
-
-    if (isSlackConfigured()) {
-      await slackPost(message.channel_id, {
-        text: "Regenerating copy...",
-        blocks: thinkingBlocks("Regenerating ad copy"),
-        thread_ts: message.thread_ts ?? message.ts,
-      });
-    }
-
-    const userNotes = direction
-      ? `User direction: ${direction}. Generate completely new ad copy following this direction.`
-      : "Generate completely different ad copy. Try a different angle, tone, or USP emphasis.";
-
-    const newRec = await generateRecommendations({
-      source: session.sourceStructure,
-      campaignType: session.campaignType,
-      userNotes,
-    });
-
-    newRec.budget.dailyEuros = rec.budget.dailyEuros;
-    newRec.keywords = rec.keywords;
-
-    session.recommendations = newRec;
-    sessions.set(key, session);
-    return postBlocksOrText(message, recommendationBlocks(newRec), newRec.campaignName);
+    return regenerateCopy(agent, message, session, key, direction || undefined);
   }
 
   // Add keyword
@@ -926,14 +902,83 @@ async function handleReview(
     return postBlocksOrText(message, recommendationBlocks(rec), rec.campaignName);
   }
 
-  // Unknown command
-  return reply(message, [
-    "While reviewing, you can:",
-    "  `adjust budget to €X` · `url https://...` · `path outlet/sale`",
-    "  `end date YYYY-MM-DD` · `no end date` · `target BE, NL`",
-    "  `rename to [name]` · `add/remove keyword [text]`",
-    "  `regenerate copy` · `show` · `confirm` · `export csv` · `cancel`",
-  ].join("\n"));
+  // Show help
+  if (lower === "help" || lower === "?") {
+    return reply(message, [
+      "While reviewing, you can:",
+      "  `adjust budget to €X` · `url https://...` · `path outlet/sale`",
+      "  `end date YYYY-MM-DD` · `no end date` · `target to BE, NL`",
+      "  `rename to [name]` · `add/remove keyword [text]`",
+      "  `show` · `confirm` · `export csv` · `cancel`",
+      "  Or just type feedback to improve the ad copy (e.g. 'include dates and location')",
+    ].join("\n"));
+  }
+
+  // Anything else = ad copy feedback → regenerate with user direction
+  return regenerateCopy(agent, message, session, key, message.text.trim());
+}
+
+/** Regenerate ad copy with user feedback + event context + RAG */
+async function regenerateCopy(
+  agent: GoogleAdsAgent,
+  message: RoutedMessage,
+  session: WizardState,
+  key: string,
+  direction?: string,
+): Promise<WizardResponse> {
+  const rec = session.recommendations!;
+
+  if (isSlackConfigured()) {
+    await slackPost(message.channel_id, {
+      text: "Regenerating copy...",
+      blocks: thinkingBlocks("Regenerating ad copy with your feedback"),
+      thread_ts: message.thread_ts ?? message.ts,
+    });
+  }
+
+  // Build rich context from event config
+  let eventContext = "";
+  if (session.eventConfig) {
+    const ec = session.eventConfig;
+    const ev = ec.event;
+    eventContext = [
+      `\nEvent context (from admin.shoppingeventvip.be):`,
+      `  Event: ${ev.titleNl}`,
+      `  Dates: ${ev.dateTextNl ?? "unknown"}`,
+      `  Location: ${ev.locationText ?? "unknown"} (${ev.postalCode ?? ""})`,
+      `  Brands: ${ev.brands.join(", ")}`,
+      `  Type: ${ev.type}`,
+      `  Campaign end: ${ec.campaignEndDate}`,
+    ].join("\n");
+  }
+
+  const userNotes = [
+    direction ? `User feedback: ${direction}.` : "Generate completely different ad copy. Try a different angle.",
+    eventContext,
+    "IMPORTANT: Use the event dates, location, and brand info in the ad copy. Include specific dates in headlines when possible.",
+  ].filter(Boolean).join("\n");
+
+  // Gather RAG context
+  const brand = extractBrand(rec.campaignName);
+  const ragContext = await gatherRagContext(brand, session.eventConfig?.event.type ?? "generic", session.campaignType ?? "search");
+
+  const newRec = await generateRecommendations({
+    source: session.sourceStructure,
+    campaignType: session.campaignType,
+    brandOrProduct: session.eventConfig ? eventToAiContext(session.eventConfig.event) : undefined,
+    userNotes,
+    ragContext,
+  });
+
+  // Preserve budget, keywords, URL, end date
+  newRec.budget.dailyEuros = rec.budget.dailyEuros;
+  newRec.keywords = rec.keywords;
+  newRec.finalUrl = rec.finalUrl;
+  newRec.endDate = rec.endDate;
+
+  session.recommendations = newRec;
+  sessions.set(key, session);
+  return postBlocksOrText(message, recommendationBlocks(newRec), newRec.campaignName);
 }
 
 /** Create campaign via Google Ads API */
