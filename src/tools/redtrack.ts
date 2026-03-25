@@ -28,7 +28,7 @@ export async function createRedTrackCampaign(params: {
   brand: string;
   eventType: "physical" | "online";
   landingPageUrl: string;
-}): Promise<{ trackingUrl: string; campaignId: string } | null> {
+}): Promise<{ trackingUrl: string; campaignId: string; trackingTemplate: string } | null> {
   if (!isRedTrackConfigured()) {
     console.warn("[redtrack] Not configured — skipping");
     return null;
@@ -87,11 +87,16 @@ export async function createRedTrackCampaign(params: {
 
     const campaign = await campaignRes.json() as { id: string; trackback_url: string };
 
-    console.log(`[redtrack] Created campaign "${campaignTitle}" → ${campaign.trackback_url}`);
+    // Build tracking template: {lpurl}?cmpid=CAMPAIGN_ID&utm_campaign=...
+    const trackingTemplate = `{lpurl}?cmpid=${campaign.id}&${GOOGLE_ADS_PRESET.trackingParams}`;
+
+    console.log(`[redtrack] Created campaign "${campaignTitle}" (${campaign.id})`);
+    console.log(`[redtrack] Tracking template: ${trackingTemplate}`);
 
     return {
       trackingUrl: campaign.trackback_url,
       campaignId: campaign.id,
+      trackingTemplate,
     };
   } catch (err) {
     console.error(`[redtrack] Error: ${err instanceof Error ? err.message : String(err)}`);

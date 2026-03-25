@@ -117,6 +117,22 @@ async function createBaseCampaign(
     }
   }
 
+  // Set tracking URL template (RedTrack)
+  if (config.trackingUrlTemplate) {
+    try {
+      await client.mutateResource("campaigns", [{
+        update: {
+          resourceName: campaignRn,
+          tracking_url_template: config.trackingUrlTemplate,
+        },
+        updateMask: "tracking_url_template",
+      }]);
+      console.log(`[campaign-builder] Set tracking template`);
+    } catch (err) {
+      console.warn(`[campaign-builder] Tracking template failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // Add geo targeting
   try {
     if (config.proximityRadius && config.proximityAddress) {

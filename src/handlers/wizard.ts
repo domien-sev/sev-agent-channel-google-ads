@@ -1007,8 +1007,8 @@ async function confirmAndBuild(
   const languages = session.eventConfig?.languages ?? ["nl", "fr"];
   const endDate = session.eventConfig?.campaignEndDate ?? rec.endDate;
 
-  // Create RedTrack campaign first to get tracking URL
-  let finalUrl = rec.finalUrl;
+  // Create RedTrack campaign to get tracking template
+  let trackingTemplate: string | undefined;
   let redtrackCampaignId: string | undefined;
   if (isRedTrackConfigured()) {
     const brand = extractBrand(rec.campaignName);
@@ -1019,9 +1019,9 @@ async function confirmAndBuild(
       landingPageUrl: rec.finalUrl,
     });
     if (rtResult) {
-      finalUrl = rtResult.trackingUrl;
+      trackingTemplate = rtResult.trackingTemplate;
       redtrackCampaignId = rtResult.campaignId;
-      console.log(`[wizard] RedTrack campaign created: ${rtResult.campaignId} → ${rtResult.trackingUrl}`);
+      console.log(`[wizard] RedTrack campaign: ${rtResult.campaignId}`);
     }
   }
 
@@ -1038,6 +1038,7 @@ async function confirmAndBuild(
     startDate: new Date().toISOString().split("T")[0],
     ...(endDate && { endDate }),
     targetCountry: "BE",
+    ...(trackingTemplate && { trackingUrlTemplate: trackingTemplate }),
     // Physical events: radius around venue. Ecommerce: all Belgium.
     ...(isPhysicalEvent && ec?.event.locationText && ec?.targetingRadius > 0 && {
       proximityRadius: ec.targetingRadius,
@@ -1058,7 +1059,7 @@ async function confirmAndBuild(
     config.responsiveSearchAd = {
       headlines: primaryCopy.headlines.slice(0, 15),
       descriptions: primaryCopy.descriptions.slice(0, 4),
-      finalUrl,
+      finalUrl: rec.finalUrl,
       path1: rec.path1,
       path2: rec.path2,
     };
@@ -1091,26 +1092,10 @@ async function confirmAndBuild(
       const secondCopy = rec.adCopy[secondLang] ?? rec.adCopy.fr;
 
       // Build FR-specific URL: replace /nl/ with /fr/ in the landing page
-      let frFinalUrl = finalUrl;
-      if (secondLang === "fr") {
-        // If using RedTrack, create a separate FR RedTrack campaign
-        const frLandingUrl = rec.finalUrl.replace("/nl/", "/fr/");
-        if (isRedTrackConfigured()) {
-          const frRt = await createRedTrackCampaign({
-            brand: extractBrand(rec.campaignName),
-            eventType: ec?.event.type ?? "physical",
-            landingPageUrl: frLandingUrl,
-          }).catch(() => null);
-          if (frRt) {
-            frFinalUrl = frRt.trackingUrl;
-            console.log(`[wizard] FR RedTrack campaign: ${frRt.campaignId}`);
-          } else {
-            frFinalUrl = frLandingUrl;
-          }
-        } else {
-          frFinalUrl = frLandingUrl;
-        }
-      }
+      // Tracking template is set at campaign level, so just use the direct FR URL
+      const frFinalUrl = secondLang === "fr"
+        ? rec.finalUrl.replace("/nl/", "/fr/")
+        : rec.finalUrl;
 
       try {
         // Create FR ad group

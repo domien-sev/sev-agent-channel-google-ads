@@ -180,4 +180,6 @@ export interface CampaignConfig {
   proximityRadius?: number;
   proximityAddress?: string;
   proximityPostalCode?: string;
+  // URL tracking
+  trackingUrlTemplate?: string;
 }
