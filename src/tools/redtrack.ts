@@ -48,7 +48,11 @@ export async function createRedTrackCampaign(params: {
     const offerRes = await fetch(`${REDTRACK_API_URL}/offers?api_key=${REDTRACK_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: offerName, url: offerUrl }),
+      body: JSON.stringify({
+        title: offerName,
+        url: offerUrl,
+        program_id: "6502d74dccc90200010fe63a",
+      }),
     });
 
     if (!offerRes.ok) {
