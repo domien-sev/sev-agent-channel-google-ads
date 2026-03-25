@@ -124,7 +124,6 @@ function parseEvent(e: Record<string, any>): EventData {
     dates: parsedDates,
     lastEventDay,
     suggestedCampaignEnd,
-      .sort((a, b) => a.date.localeCompare(b.date)),
   };
 }
 
