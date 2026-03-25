@@ -66,9 +66,11 @@ function biddingStrategy(config: CampaignConfig): Record<string, unknown> {
 }
 
 async function createBudget(client: GoogleAdsClient, name: string, amountMicros: number): Promise<string> {
+  // Add timestamp suffix to avoid DUPLICATE_NAME errors from orphaned budgets
+  const suffix = Date.now().toString(36);
   const result = await client.mutateResource("campaignBudgets", [{
     create: {
-      name: `${name} Budget`,
+      name: `${name} Budget ${suffix}`,
       amount_micros: String(amountMicros),
       delivery_method: "STANDARD",
     },
