@@ -73,6 +73,7 @@ async function createBudget(client: GoogleAdsClient, name: string, amountMicros:
       name: `${name} Budget ${suffix}`,
       amount_micros: String(amountMicros),
       delivery_method: "STANDARD",
+      explicitly_shared: false,
     },
   }]);
   return result.results[0].resourceName;
@@ -95,8 +96,9 @@ async function createBaseCampaign(
       ...biddingStrategy(config),
       geo_target_type_setting: {
         positive_geo_target_type: "PRESENCE_OR_INTEREST",
-        negative_geo_target_type: "PRESENCE_OR_INTEREST",
+        negative_geo_target_type: "PRESENCE",
       },
+      contains_eu_political_advertising: false,
       ...extraFields,
     },
   }]);
