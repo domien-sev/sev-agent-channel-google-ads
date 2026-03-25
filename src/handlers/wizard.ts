@@ -912,8 +912,8 @@ async function handleReview(
     return reply(message, "End date removed (campaign will run indefinitely). Type `confirm` to create or keep adjusting.");
   }
 
-  // Change locations
-  const locMatch = message.text.trim().match(/(?:target|location|locations?)\s+(?:to\s+)?(.+)/i);
+  // Change locations (requires "to" or starts with "target ")
+  const locMatch = message.text.trim().match(/(?:(?:target|location|locations?)\s+to\s+|^target\s+)(.+)/i);
   if (locMatch) {
     rec.targeting.locations = locMatch[1].split(/[,\s]+/).map((l) => l.trim().toUpperCase()).filter(Boolean);
     rec.targeting.reasoning = "Manually set";
