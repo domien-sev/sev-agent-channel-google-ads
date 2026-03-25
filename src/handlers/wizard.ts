@@ -26,6 +26,8 @@ import {
   findEventForBrand,
   eventToAiContext,
   isEventSourceConfigured,
+  extractEventIdFromUrl,
+  getEventById,
 } from "../tools/event-source.js";
 import type { CampaignConfig } from "../types.js";
 import { reply, postBlocks } from "../tools/reply.js";
@@ -409,6 +411,20 @@ async function handleContext(
 ): Promise<WizardResponse> {
   const userContext = message.text.trim();
 
+  // Check if the user pasted an event URL from admin.shoppingeventvip.be
+  let enrichedContext = userContext;
+  const eventId = extractEventIdFromUrl(userContext);
+  if (eventId && isEventSourceConfigured()) {
+    const event = await getEventById(eventId);
+    if (event) {
+      enrichedContext = eventToAiContext(event);
+      // Auto-set end date from event
+      if (event.endDate) {
+        session.recommendations = session.recommendations ?? {} as any;
+      }
+    }
+  }
+
   if (isSlackConfigured()) {
     await slackPost(message.channel_id, {
       text: "Generating recommendations...",
@@ -422,8 +438,17 @@ async function handleContext(
 
   const recommendations = await generateRecommendations({
     campaignType: session.campaignType,
-    brandOrProduct: userContext,
+    brandOrProduct: enrichedContext,
   });
+
+  // If event was detected, set end date and URL from event
+  if (eventId && isEventSourceConfigured()) {
+    const event = await getEventById(eventId);
+    if (event) {
+      if (event.endDate) recommendations.endDate = event.endDate.split("T")[0];
+      if (event.url) recommendations.finalUrl = event.url;
+    }
+  }
 
   session.recommendations = recommendations;
   session.step = "reviewing";
@@ -519,6 +544,30 @@ async function handleReview(
     rec.campaignName = nameMatch[1];
     sessions.set(key, session);
     return reply(message, `Campaign name set to "${rec.campaignName}".`);
+  }
+
+  // Link event from admin URL (enriches context, sets end date and URL)
+  const adminUrlMatch = message.text.trim().match(/admin\.shoppingeventvip\.be/i);
+  if (adminUrlMatch) {
+    const eventId = extractEventIdFromUrl(message.text.trim());
+    if (eventId && isEventSourceConfigured()) {
+      const event = await getEventById(eventId);
+      if (event) {
+        if (event.url) rec.finalUrl = event.url;
+        if (event.endDate) rec.endDate = event.endDate.split("T")[0];
+        sessions.set(key, session);
+
+        const updates: string[] = [];
+        if (event.url) updates.push(`Landing page: \`${event.url}\``);
+        if (event.endDate) updates.push(`End date: ${rec.endDate}`);
+        updates.push(`Event: *${event.titleNl}* (${event.type})`);
+        if (event.brands.length) updates.push(`Brands: ${event.brands.join(", ")}`);
+        if (event.dateTextNl) updates.push(`Dates: ${event.dateTextNl}`);
+
+        return reply(message, `Event linked:\n${updates.map(u => `  ${u}`).join("\n")}\n\nType \`regenerate copy\` to update ad copy with event context, or \`confirm\` to create.`);
+      }
+      return reply(message, `Event ID ${eventId} not found on admin.shoppingeventvip.be.`);
+    }
   }
 
   // Change URL

@@ -108,12 +108,14 @@ Generate a complete campaign recommendation as JSON. Requirements:
   - 15 headlines each language (max 30 chars STRICT — count carefully, this is critical)
   - 4 descriptions each language (max 90 chars STRICT)
   - Headlines should include: brand/product name, USPs, CTAs, seasonal hooks
-  - Derive the brand voice and USPs from the source campaign data or user context
+  - ${source ? "IMPORTANT: Adapt and improve the existing headlines/descriptions from the source campaign. Keep what works well, update dates and seasonal references, fix any issues. Do NOT discard them and start from scratch." : "Derive the brand voice and USPs from the user context."}
   - Mix pinnable brand headlines with dynamic benefit headlines
-- keywords: 15-25 keywords with match types and thematic groups (branded, generic, competitor, long-tail). Derive from source keywords if cloning.
+  - If event dates are provided, include them in headlines (e.g. "27 & 28 maart" or "17-20 mei")
+- keywords: 15-25 keywords with match types and thematic groups (branded, generic, competitor, long-tail). ${source ? "Keep the best-performing source keywords and add new relevant ones." : "Research relevant keywords."}
 - targeting: location codes (e.g. "BE", "NL") and reasoning based on context
-- finalUrl: landing page URL (derive from source ads if cloning, otherwise ask-worthy)
+- finalUrl: landing page URL (derive from source ads or event URL if available)
 - path1, path2: display URL paths (max 15 chars each, relevant to brand/product)
+- endDate: campaign end date in YYYY-MM-DD format. If event dates are provided, set this to the day after the last event day. Otherwise omit.
 
 Respond with ONLY valid JSON matching this structure:
 {
@@ -127,7 +129,8 @@ Respond with ONLY valid JSON matching this structure:
   "targeting": { "locations": ["BE"], "reasoning": "string" },
   "finalUrl": "string",
   "path1": "string",
-  "path2": "string"
+  "path2": "string",
+  "endDate": "string or null"
 }`,
       },
     ],

@@ -312,9 +312,11 @@ export function thinkingBlocks(action: string): SlackBlock[] {
 export function contextPromptBlocks(campaignType: string): SlackBlock[] {
   return [
     headerBlock(`${campaignType.charAt(0).toUpperCase() + campaignType.slice(1)} Campaign`),
-    sectionBlock("Tell me about the campaign. What brand/product, landing page, and goal?"),
+    sectionBlock("Tell me about the campaign. You can:"),
+    sectionBlock("1. Paste an *event URL* from admin.shoppingeventvip.be (e.g. `admin.shoppingeventvip.be/items/event/123`) — I'll pull all event details automatically"),
+    sectionBlock("2. Or describe the campaign: brand/product, landing page, and goal"),
     contextBlock([
-      "Example: `RiverWoods winter sale, shoppingeventvip.be/river-woods, drive registrations`",
+      "Example: `https://admin.shoppingeventvip.be/items/event/42` or `RiverWoods winter sale, shoppingeventvip.be/river-woods, drive registrations`",
     ]),
   ];
 }

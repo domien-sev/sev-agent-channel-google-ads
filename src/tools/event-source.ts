@@ -305,3 +305,32 @@ export function eventToAiContext(event: EventData): string {
 export function isEventSourceConfigured(): boolean {
   return DIRECTUS_TOKEN.length > 0;
 }
+
+/**
+ * Extract event ID from an admin.shoppingeventvip.be URL.
+ * Supports: /items/event/123, /admin/content/event/123, or just a numeric ID.
+ */
+export function extractEventIdFromUrl(input: string): string | null {
+  // Direct numeric ID
+  if (/^\d+$/.test(input.trim())) return input.trim();
+
+  // URL patterns: /items/event/123 or /admin/content/event/123
+  const match = input.match(/\/event\/(\d+)/);
+  if (match) return match[1];
+
+  return null;
+}
+
+/**
+ * Fetch a single event by its numeric ID from Directus.
+ */
+export async function getEventById(id: string): Promise<EventData | null> {
+  try {
+    const event = await directusFetch<Record<string, any>>(
+      `/items/event/${id}?fields=${EVENT_FIELDS}`,
+    );
+    return parseEvent(event);
+  } catch {
+    return null;
+  }
+}
