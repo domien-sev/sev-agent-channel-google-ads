@@ -57,6 +57,15 @@ interface CreatedCampaign {
   assetGroupResourceName?: string;
 }
 
+interface PendingAd {
+  finalUrl: string;
+  headlines: string[];
+  descriptions: string[];
+  path1: string;
+  path2: string;
+  feedbackHistory: string[];
+}
+
 interface WizardState {
   step: WizardStep;
   threadTs: string;
@@ -66,6 +75,7 @@ interface WizardState {
   sourceStructure?: CampaignStructure;
   recommendations?: WizardRecommendations;
   created?: CreatedCampaign;
+  pendingAd?: PendingAd;
   createdAt: number;
 }
 
@@ -975,7 +985,24 @@ async function handlePostCreation(
     }
   }
 
-  // Add ad to campaign — extract first URL from message starting with "add ad"
+  // Confirm pending ad
+  if ((lower === "confirm ad" || lower === "confirm") && session.pendingAd) {
+    return confirmPendingAd(agent, message, session, key);
+  }
+
+  // Feedback on pending ad — any text while pendingAd exists is treated as feedback
+  if (session.pendingAd && !lower.startsWith("add ad") && lower !== "cancel ad") {
+    return regenerateAd(agent, message, session, key, message.text.trim());
+  }
+
+  // Cancel pending ad review
+  if (lower === "cancel ad" && session.pendingAd) {
+    session.pendingAd = undefined;
+    sessions.set(key, session);
+    return reply(message, "Ad draft discarded.");
+  }
+
+  // Add ad to campaign — generate preview (not created yet)
   const isAddAd = lower.startsWith("add ad");
   const urlInMessage = message.text.match(/(https?:\/\/[^\s>|]+)/i);
   if (isAddAd && urlInMessage) {
@@ -983,51 +1010,7 @@ async function handlePostCreation(
     if (!created.adGroupResourceName) {
       return reply(message, "No ad group found for this campaign. Create one in Google Ads first.");
     }
-
-    // Generate bilingual ad copy via AI
-    try {
-      if (isSlackConfigured()) {
-        await slackPost(message.channel_id, {
-          text: "Generating ad copy...",
-          blocks: thinkingBlocks("Generating bilingual ad copy"),
-          thread_ts: message.thread_ts ?? message.ts,
-        });
-      }
-
-      const aiRec = await generateRecommendations({
-        campaignType: "search",
-        brandOrProduct: `Campaign: ${rec.campaignName}. Landing page: ${finalUrl}`,
-      });
-
-      await agent.googleAds.mutateResource("adGroupAds", [{
-        create: {
-          ad_group: created.adGroupResourceName,
-          status: "PAUSED",
-          ad: {
-            responsive_search_ad: {
-              headlines: aiRec.adCopy.nl.headlines.slice(0, 15).map((h: string) => ({ text: h })),
-              descriptions: aiRec.adCopy.nl.descriptions.slice(0, 4).map((d: string) => ({ text: d })),
-              path1: aiRec.path1,
-              path2: aiRec.path2,
-            },
-            final_urls: [finalUrl],
-          },
-        },
-      }]);
-
-      return reply(message, [
-        `Ad created (PAUSED) with URL \`${finalUrl}\``,
-        `  ${aiRec.adCopy.nl.headlines.length} headlines · ${aiRec.adCopy.nl.descriptions.length} descriptions`,
-        "Review in Google Ads and enable when ready.",
-      ].join("\n"));
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      const policyMatch = errMsg.match(/"topic":\s*"([^"]+)"/);
-      if (policyMatch?.[1] === "DESTINATION_NOT_WORKING") {
-        return reply(message, `:warning: Ad rejected — URL \`${finalUrl}\` is not reachable. Check the URL and try again.`);
-      }
-      return reply(message, `Failed to create ad: ${errMsg.slice(0, 300)}`);
-    }
+    return generateAdPreview(agent, message, session, key, finalUrl);
   }
 
   // Unknown command — show help
@@ -1065,6 +1048,159 @@ async function exportCsv(
     csvExportBlocks(csv, rec.campaignName),
     `CSV export for ${rec.campaignName}`,
   );
+}
+
+/** Generate ad copy preview without creating */
+async function generateAdPreview(
+  agent: GoogleAdsAgent,
+  message: RoutedMessage,
+  session: WizardState,
+  key: string,
+  finalUrl: string,
+): Promise<WizardResponse> {
+  const rec = session.recommendations!;
+
+  if (isSlackConfigured()) {
+    await slackPost(message.channel_id, {
+      text: "Generating ad copy...",
+      blocks: thinkingBlocks("Generating bilingual ad copy"),
+      thread_ts: message.thread_ts ?? message.ts,
+    });
+  }
+
+  try {
+    const aiRec = await generateRecommendations({
+      campaignType: "search",
+      brandOrProduct: `Campaign: ${rec.campaignName}. Landing page: ${finalUrl}`,
+      userNotes: session.pendingAd?.feedbackHistory.length
+        ? `Previous feedback: ${session.pendingAd.feedbackHistory.join("; ")}`
+        : undefined,
+    });
+
+    session.pendingAd = {
+      finalUrl,
+      headlines: aiRec.adCopy.nl.headlines,
+      descriptions: aiRec.adCopy.nl.descriptions,
+      path1: aiRec.path1,
+      path2: aiRec.path2,
+      feedbackHistory: session.pendingAd?.feedbackHistory ?? [],
+    };
+    sessions.set(key, session);
+
+    return reply(message, formatAdPreview(session.pendingAd));
+  } catch (err) {
+    return reply(message, `Failed to generate ad copy: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Regenerate ad copy based on user feedback */
+async function regenerateAd(
+  agent: GoogleAdsAgent,
+  message: RoutedMessage,
+  session: WizardState,
+  key: string,
+  feedback: string,
+): Promise<WizardResponse> {
+  const rec = session.recommendations!;
+  const pending = session.pendingAd!;
+  pending.feedbackHistory.push(feedback);
+
+  if (isSlackConfigured()) {
+    await slackPost(message.channel_id, {
+      text: "Regenerating ad copy...",
+      blocks: thinkingBlocks("Regenerating ad copy with your feedback"),
+      thread_ts: message.thread_ts ?? message.ts,
+    });
+  }
+
+  try {
+    const currentCopy = [
+      `Current headlines: ${pending.headlines.map(h => `"${h}"`).join(", ")}`,
+      `Current descriptions: ${pending.descriptions.map(d => `"${d}"`).join(", ")}`,
+    ].join("\n");
+
+    const aiRec = await generateRecommendations({
+      campaignType: "search",
+      brandOrProduct: `Campaign: ${rec.campaignName}. Landing page: ${pending.finalUrl}`,
+      userNotes: `${currentCopy}\n\nUser feedback: ${feedback}\n\nIMPORTANT: Apply the feedback to improve the ad copy. Keep what works, fix what the user asked to change.`,
+    });
+
+    pending.headlines = aiRec.adCopy.nl.headlines;
+    pending.descriptions = aiRec.adCopy.nl.descriptions;
+    pending.path1 = aiRec.path1;
+    pending.path2 = aiRec.path2;
+    sessions.set(key, session);
+
+    return reply(message, formatAdPreview(pending));
+  } catch (err) {
+    return reply(message, `Failed to regenerate: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Confirm and create the pending ad */
+async function confirmPendingAd(
+  agent: GoogleAdsAgent,
+  message: RoutedMessage,
+  session: WizardState,
+  key: string,
+): Promise<WizardResponse> {
+  const created = session.created!;
+  const pending = session.pendingAd!;
+
+  try {
+    await agent.googleAds.mutateResource("adGroupAds", [{
+      create: {
+        ad_group: created.adGroupResourceName,
+        status: "PAUSED",
+        ad: {
+          responsive_search_ad: {
+            headlines: pending.headlines.map((h) => ({ text: h })),
+            descriptions: pending.descriptions.map((d) => ({ text: d })),
+            path1: pending.path1,
+            path2: pending.path2,
+          },
+          final_urls: [pending.finalUrl],
+        },
+      },
+    }]);
+
+    session.pendingAd = undefined;
+    sessions.set(key, session);
+
+    return reply(message, [
+      `Ad created (PAUSED) with URL \`${pending.finalUrl}\``,
+      `  ${pending.headlines.length} headlines · ${pending.descriptions.length} descriptions`,
+      "Review in Google Ads and enable when ready.",
+    ].join("\n"));
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    const policyMatch = errMsg.match(/"topic":\s*"([^"]+)"/);
+    if (policyMatch?.[1] === "DESTINATION_NOT_WORKING") {
+      return reply(message, `:warning: Ad rejected — URL \`${pending.finalUrl}\` is not reachable. Check the URL and try again.`);
+    }
+    return reply(message, `Failed to create ad: ${errMsg.slice(0, 300)}`);
+  }
+}
+
+/** Format ad preview for Slack */
+function formatAdPreview(ad: PendingAd): string {
+  const lines = [
+    "*Ad Copy Preview*",
+    `URL: \`${ad.finalUrl}\``,
+    `Paths: \`${ad.path1}\` / \`${ad.path2}\``,
+    "",
+    `*Headlines (${ad.headlines.length}):*`,
+    ...ad.headlines.map((h) => `  \`${h}\` (${h.length}/30)`),
+    "",
+    `*Descriptions (${ad.descriptions.length}):*`,
+    ...ad.descriptions.map((d) => `  \`${d}\` (${d.length}/90)`),
+    "",
+    "---",
+    "Reply with feedback to improve (e.g. `more urgency`, `mention 27 maart`, `shorter headlines`)",
+    "`confirm ad` — Create this ad in Google Ads",
+    "`cancel ad` — Discard this draft",
+  ];
+  return lines.join("\n");
 }
 
 /** Find a campaign ID by name or numeric ID */
