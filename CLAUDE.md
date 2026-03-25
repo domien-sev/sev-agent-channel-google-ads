@@ -143,6 +143,10 @@ This agent uses `@domien-sev/*` packages from GitHub Packages.
 
 
 
+## Codex CLI (Second Opinion)
+
+Use `/codex [prompt]` or say "ask codex to review..." to get a second opinion from OpenAI Codex CLI (gpt-5.4). Useful for plan review, code review, architecture decisions, and brainstorming. Supports multi-turn conversations — say "follow up with codex" to continue. Script at `sev-ai-core/.claude/skills/codex/scripts/codex_chat.py`.
+
 ## Project Pickup
 
 See [`PICKUP.md`](../PICKUP.md) in the project root for all unfinished projects and their remaining tasks.

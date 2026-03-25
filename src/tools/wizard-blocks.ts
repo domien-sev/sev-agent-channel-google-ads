@@ -248,6 +248,7 @@ export function confirmationBlocks(opts: {
   campaignResource: string;
   adGroupResource?: string;
   assetGroupResource?: string;
+  warning?: string;
 }): SlackBlock[] {
   const blocks: SlackBlock[] = [
     headerBlock("Campaign Created"),
@@ -270,6 +271,13 @@ export function confirmationBlocks(opts: {
     blocks.push(sectionBlock(`*Asset Group:* \`${opts.assetGroupResource}\``));
   }
 
+  if (opts.warning) {
+    blocks.push(
+      dividerBlock(),
+      sectionBlock(`:warning: ${opts.warning}`),
+    );
+  }
+
   blocks.push(
     dividerBlock(),
     actionsBlock([
@@ -278,7 +286,7 @@ export function confirmationBlocks(opts: {
       buttonElement("Done", "wizard_done", "done"),
     ], "wizard_post_actions"),
     contextBlock([
-      ":warning: Campaign is PAUSED. Use buttons above or type: `enable` · `pause` · `adjust budget to €X` · `end date YYYY-MM-DD` · `rename to ...` · `done`",
+      "Campaign is PAUSED. Use buttons above or type: `enable` · `pause` · `adjust budget to €X` · `end date YYYY-MM-DD` · `rename to ...` · `done`",
     ]),
   );
 

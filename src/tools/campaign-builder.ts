@@ -18,6 +18,7 @@ interface BuildResult {
   campaignResourceName: string;
   adGroupResourceName?: string;
   assetGroupResourceName?: string;
+  adWarning?: string;
 }
 
 /**
@@ -156,27 +157,39 @@ async function buildSearchCampaign(client: GoogleAdsClient, config: CampaignConf
     await client.mutateResource("adGroupCriteria", keywordOps);
   }
 
-  // Create responsive search ad if provided
+  // Create responsive search ad if provided (non-fatal — campaign still usable without ad)
+  let adWarning: string | undefined;
   if (config.responsiveSearchAd) {
     const rsa = config.responsiveSearchAd;
-    await client.mutateResource("adGroupAds", [{
-      create: {
-        ad_group: adGroupRn,
-        status: "PAUSED",
-        ad: {
-          responsive_search_ad: {
-            headlines: rsa.headlines.map((h) => ({ text: h })),
-            descriptions: rsa.descriptions.map((d) => ({ text: d })),
-            path1: rsa.path1,
-            path2: rsa.path2,
+    try {
+      await client.mutateResource("adGroupAds", [{
+        create: {
+          ad_group: adGroupRn,
+          status: "PAUSED",
+          ad: {
+            responsive_search_ad: {
+              headlines: rsa.headlines.map((h) => ({ text: h })),
+              descriptions: rsa.descriptions.map((d) => ({ text: d })),
+              path1: rsa.path1,
+              path2: rsa.path2,
+            },
+            final_urls: [rsa.finalUrl],
           },
-          final_urls: [rsa.finalUrl],
         },
-      },
-    }]);
+      }]);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      // Extract policy topic if present
+      const policyMatch = errMsg.match(/"topic":\s*"([^"]+)"/);
+      const policyTopic = policyMatch ? policyMatch[1] : null;
+      adWarning = policyTopic === "DESTINATION_NOT_WORKING"
+        ? `Ad rejected: landing page ${rsa.finalUrl} is not reachable. Add a working URL in Google Ads.`
+        : `Ad creation failed: ${policyTopic ?? errMsg.slice(0, 200)}. Add ads manually in Google Ads.`;
+      console.warn(`[campaign-builder] Ad creation failed (non-fatal): ${errMsg}`);
+    }
   }
 
-  return { campaignResourceName: campaignRn, adGroupResourceName: adGroupRn };
+  return { campaignResourceName: campaignRn, adGroupResourceName: adGroupRn, adWarning };
 }
 
 async function buildShoppingCampaign(client: GoogleAdsClient, config: CampaignConfig): Promise<BuildResult> {

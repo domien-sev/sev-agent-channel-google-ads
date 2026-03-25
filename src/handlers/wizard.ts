@@ -649,6 +649,7 @@ async function confirmAndBuild(
         campaignResource: result.campaignResourceName,
         adGroupResource: result.adGroupResourceName,
         assetGroupResource: result.assetGroupResourceName,
+        warning: result.adWarning,
       }),
       `Campaign Created: ${rec.campaignName}`,
     );
