@@ -410,6 +410,7 @@ async function handleEventStep(
       ? `${event.locationText ?? event.postalCode} (${event.postalCode})`
       : "Belgium",
     landingPageUrl,
+    languages: ["nl", "fr"],
   };
 
   session.eventConfig = eventConfig;
