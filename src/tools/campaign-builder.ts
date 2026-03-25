@@ -98,7 +98,7 @@ async function createBaseCampaign(
         positive_geo_target_type: "PRESENCE_OR_INTEREST",
         negative_geo_target_type: "PRESENCE",
       },
-      contains_eu_political_advertising: "NOT_EU_POLITICAL_ADVERTISING",
+      contains_eu_political_advertising: 2,
       ...extraFields,
     },
   }]);
