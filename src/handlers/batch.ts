@@ -443,7 +443,7 @@ async function createBrandCampaign(
       path2: rec.path2,
       keywords: rec.keywords,
       campaignName: plan.campaignName,
-      eventDates: event.dateTextNl,
+      eventDates: event.dateTextNl ?? undefined,
     });
   } catch { /* non-fatal */ }
 
