@@ -18,6 +18,7 @@
     "@domien-sev/ads-sdk": "^0.3.0",
     "@domien-sev/agent-sdk": "*",
     "@domien-sev/directus-sdk": "*",
+    "@domien-sev/redtrack-sdk": "^0.2.0",
     "@domien-sev/shared-types": "*",
     "node-cron": "^3.0.3",
     "pg": "^8.13.0"

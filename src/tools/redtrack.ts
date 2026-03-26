@@ -1,28 +1,37 @@
 /**
  * RedTrack integration for Google Ads campaign tracking.
- * Creates RedTrack offer + campaign when a Google Ads campaign is confirmed.
- * Returns tracking URL to use as final_url in ads.
+ * Uses @domien-sev/redtrack-sdk for the three-step campaign creation
+ * (offer → stream → campaign PUT) that properly binds funnels.
  */
+
+import { RedTrackClient } from "@domien-sev/redtrack-sdk";
 
 const REDTRACK_API_URL = process.env.REDTRACK_API_URL ?? "https://api.redtrack.io";
 const REDTRACK_API_KEY = process.env.REDTRACK_API_KEY ?? "";
 
-/** Google Ads tracking preset for Shopping Event VIP */
-const GOOGLE_ADS_PRESET = {
-  sourceId: "650ead3c8d33bd00010d71c5",
-  domainId: "650431d161f1c40001ae2b24",
-  trackingParams: "utm_campaign={replace}&sub2={keyword}&sub3={matchtype}&sub4={adgroupid}&sub5={creative}&sub6={campaignid}&sub7={device}&sub8={adposition}&sub9={network}&sub10={placement}&utm_source=Google&wbraid={wbraid}&gbraid={gbraid}&ref_id={gclid}",
-};
+/** Google Ads tracking params appended to the tracking URL by RedTrack */
+const GOOGLE_ADS_TRACKING_PARAMS =
+  "utm_campaign={replace}&sub2={keyword}&sub3={matchtype}&sub4={adgroupid}" +
+  "&sub5={creative}&sub6={campaignid}&sub7={device}&sub8={adposition}" +
+  "&sub9={network}&sub10={placement}&utm_source=Google&wbraid={wbraid}" +
+  "&gbraid={gbraid}&ref_id={gclid}";
 
-const OFFER_TRACKING_PARAMS = "rtkcid={clickid}&clickid={clickid}&cmpid={campaignid}";
+let client: RedTrackClient | null = null;
+
+function getClient(): RedTrackClient {
+  if (!client) {
+    client = new RedTrackClient({ apiKey: REDTRACK_API_KEY, apiUrl: REDTRACK_API_URL });
+  }
+  return client;
+}
 
 export function isRedTrackConfigured(): boolean {
   return REDTRACK_API_KEY.length > 0;
 }
 
 /**
- * Create a full RedTrack campaign for a physical event Google Ads campaign.
- * Returns the tracking URL to use as final_url in ads.
+ * Create a full RedTrack campaign for an event Google Ads campaign.
+ * Returns the tracking template to use in Google Ads campaign settings.
  */
 export async function createRedTrackCampaign(params: {
   brand: string;
@@ -35,45 +44,22 @@ export async function createRedTrackCampaign(params: {
   }
 
   try {
-    const now = new Date();
-    const yearMonth = `${now.getFullYear()}-${now.getMonth() + 1}`;
-    const brandClean = params.brand.replace(/\s+/g, "");
-    const eventLabel = params.eventType === "physical" ? "physical" : "online";
-    const campaignTitle = `${yearMonth}-${brandClean}-${eventLabel}-GoogleAdstracking`;
-
-    // Create campaign using copy_from to clone the funnel from a working campaign.
-    // The RedTrack API has a bug where POST /campaigns doesn't properly bind streams,
-    // but copy_from copies them correctly.
-    const TEMPLATE_CAMPAIGN_ID = "69affc3adfd9ed8898ffd140"; // Working Marie Méro campaign
-
-    const campaignRes = await fetch(`${REDTRACK_API_URL}/campaigns?api_key=${REDTRACK_API_KEY}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: campaignTitle,
-        source_id: GOOGLE_ADS_PRESET.sourceId,
-        domain_id: GOOGLE_ADS_PRESET.domainId,
-        status: 1,
-        copy_from: TEMPLATE_CAMPAIGN_ID,
-      }),
+    const result = await getClient().createEventCampaign({
+      brand: params.brand,
+      eventType: params.eventType,
+      channel: "google-ads",
+      landingPageUrl: params.landingPageUrl,
     });
 
-    if (!campaignRes.ok) {
-      console.error(`[redtrack] Create campaign failed: ${campaignRes.status} ${await campaignRes.text()}`);
-      return null;
-    }
+    const trackingTemplate = `{lpurl}?cmpid=${result.campaignId}&${GOOGLE_ADS_TRACKING_PARAMS}`;
 
-    const campaign = await campaignRes.json() as { id: string; trackback_url: string };
-
-    // Build tracking template: {lpurl}?cmpid=CAMPAIGN_ID&utm_campaign=...
-    const trackingTemplate = `{lpurl}?cmpid=${campaign.id}&${GOOGLE_ADS_PRESET.trackingParams}`;
-
-    console.log(`[redtrack] Created campaign "${campaignTitle}" (${campaign.id})`);
+    console.log(`[redtrack] Created campaign ${result.campaignId}`);
+    console.log(`[redtrack] Tracking URL: ${result.trackingUrl}`);
     console.log(`[redtrack] Tracking template: ${trackingTemplate}`);
 
     return {
-      trackingUrl: campaign.trackback_url,
-      campaignId: campaign.id,
+      trackingUrl: result.trackingUrl,
+      campaignId: result.campaignId,
       trackingTemplate,
     };
   } catch (err) {
