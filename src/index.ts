@@ -2,6 +2,7 @@ import http from "node:http";
 import { GoogleAdsAgent } from "./agent.js";
 import { loadConfig, createHealthEndpoint } from "@domien-sev/agent-sdk";
 import { initScheduler, stopScheduler, runOptimizationCycleHttp } from "./scheduler.js";
+import { handleBatchCampaigns } from "./handlers/batch.js";
 
 const PORT = parseInt(process.env.PORT ?? process.env.AGENT_PORT ?? "3000", 10);
 
@@ -41,6 +42,23 @@ async function main() {
         console.error("Error handling message:", errMsg);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ error: errMsg }));
+      }
+      return;
+    }
+
+    // Batch campaign creation endpoint
+    if (req.url === "/batch-campaigns" && req.method === "POST") {
+      try {
+        const body = await readBody(req);
+        const request = JSON.parse(body);
+        const result = await handleBatchCampaigns(agent, request);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("Batch campaigns error:", errMsg);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: errMsg }));
       }
       return;
     }
