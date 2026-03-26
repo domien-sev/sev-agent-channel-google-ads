@@ -7,10 +7,12 @@ import { formatRecommendationsForSlack, formatFatigueAlerts } from "./handlers/a
 import { setPendingRecommendations } from "./handlers/optimize-rules.js";
 import { slackPost, isSlackConfigured } from "./tools/slack.js";
 import { syncKeywords, syncSearchTerms, syncAssetGroups } from "./tools/directus-sync.js";
+import { syncPerformanceScores } from "./tools/performance-sync.js";
 
 let optimizeTask: cron.ScheduledTask | null = null;
 let alertsTask: cron.ScheduledTask | null = null;
 let syncTask: cron.ScheduledTask | null = null;
+let perfSyncTask: cron.ScheduledTask | null = null;
 
 /**
  * Initialize the optimization scheduler.
@@ -24,6 +26,7 @@ export function initScheduler(agent: GoogleAdsAgent): void {
   initOptimizationCron(agent);
   initAlertsCron(agent);
   initSyncCron(agent);
+  initPerfSyncCron(agent);
 }
 
 function initOptimizationCron(agent: GoogleAdsAgent): void {
@@ -107,6 +110,50 @@ function startSyncCron(agent: GoogleAdsAgent, cronExpr: string): void {
   });
 
   console.log(`[scheduler] Data sync scheduled: "${cronExpr}"`);
+}
+
+function initPerfSyncCron(agent: GoogleAdsAgent): void {
+  const cronExpr = process.env.PERF_SYNC_CRON ?? "0 6 * * 1"; // Monday 6 AM
+
+  if (!cron.validate(cronExpr)) {
+    console.error(`[scheduler] Invalid PERF_SYNC_CRON: "${cronExpr}" — falling back to Monday 6 AM`);
+    return startPerfSyncCron(agent, "0 6 * * 1");
+  }
+
+  startPerfSyncCron(agent, cronExpr);
+}
+
+function startPerfSyncCron(agent: GoogleAdsAgent, cronExpr: string): void {
+  perfSyncTask = cron.schedule(cronExpr, async () => {
+    console.log(`[scheduler] Running performance score sync at ${new Date().toISOString()}`);
+    try {
+      await runPerfSync(agent);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[scheduler] Performance sync failed: ${msg}`);
+    }
+  }, {
+    timezone: "Europe/Brussels",
+  });
+
+  console.log(`[scheduler] Performance score sync scheduled: "${cronExpr}"`);
+}
+
+async function runPerfSync(agent: GoogleAdsAgent): Promise<void> {
+  if (!agent.googleAds) {
+    console.log("[scheduler] Google Ads client not configured — skipping perf sync");
+    return;
+  }
+
+  const result = await syncPerformanceScores(agent.googleAds);
+
+  if (result.updated > 0) {
+    await postToSlack(
+      agent,
+      `:bar_chart: *Ad Copy Library — Performance Scores Updated*\n` +
+      `Matched: ${result.matched}/${result.total} entries | Updated: ${result.updated} scores`,
+    );
+  }
 }
 
 /**
@@ -361,6 +408,11 @@ export function stopScheduler(): void {
     syncTask.stop();
     syncTask = null;
     console.log("[scheduler] Sync cron stopped");
+  }
+  if (perfSyncTask) {
+    perfSyncTask.stop();
+    perfSyncTask = null;
+    console.log("[scheduler] Performance sync cron stopped");
   }
 }
 
