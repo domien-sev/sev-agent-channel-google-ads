@@ -228,7 +228,7 @@ async function researchBrandKeywords(
     { text: `${brand} korting`, matchType: "PHRASE" },
     { text: `${brand} soldes`, matchType: "PHRASE" },
     { text: `${brand} vente privée`, matchType: "PHRASE" },
-    { text: `${brand} outlet ${event.locationText?.split(",")[0] ?? "Sint-Niklaas"}`, matchType: "PHRASE" },
+    { text: `${brand} outlet ${extractCity(event)}`, matchType: "PHRASE" },
     { text: `${eventShortName} ${brand}`, matchType: "PHRASE" },
     { text: brand, matchType: "BROAD" },
   ];
@@ -457,13 +457,26 @@ async function createBrandCampaign(
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+function extractCity(event: EventData): string {
+  // locationText is like "Bleckmann, Schrijberg 189/193, 9111 Sint-Niklaas (Belsele)"
+  // Extract city from postal code pattern: "9111 Sint-Niklaas"
+  const loc = event.locationText ?? "";
+  const cityMatch = loc.match(/\d{4}\s+([A-Za-zÀ-ÿ-]+)/);
+  if (cityMatch) return cityMatch[1];
+  // Fallback: use postalCode area
+  if (event.postalCode) return event.postalCode;
+  return "Sint-Niklaas";
+}
+
 function buildBrandContext(brand: string, event: EventData): string {
+  const city = extractCity(event);
   const location = event.locationText ?? "Sint-Niklaas";
   const dates = event.dateTextNl ?? event.dateTextFr ?? "";
   return (
     `Create a Google Ads Search campaign for the brand "${brand}" at a private sale event.\n` +
     `Event: "${event.titleNl ?? event.titleFr}" — a physical outlet/private sale event.\n` +
     `Location: ${location}\n` +
+    `City: ${city}\n` +
     `Dates: ${dates}\n` +
     `Landing page NL: https://www.shoppingeventvip.be/nl/event/${(event as any).slug ?? ""}\n` +
     `Landing page FR: https://www.shoppingeventvip.be/fr/event/${(event as any).slug ?? ""}\n\n` +
@@ -471,7 +484,7 @@ function buildBrandContext(brand: string, event: EventData): string {
     `- Brand name "${brand}"\n` +
     `- "Private Sale" or "Outlet"\n` +
     `- "Le Salon VIP"\n` +
-    `- Location: "${location.split(",")[0]}"\n` +
+    `- City name: "${city}" (NOT the venue name)\n` +
     `- Dates (abbreviated)\n` +
     `- Urgency: "Beperkte plaatsen" (NL) / "Places limitées" (FR)\n\n` +
     `This is an exclusive outlet event with discounts up to -70% on premium brands.\n` +
@@ -480,7 +493,7 @@ function buildBrandContext(brand: string, event: EventData): string {
 }
 
 function generateSampleHeadlines(brand: string, event: EventData, lang: "nl" | "fr"): string[] {
-  const city = (event.locationText ?? "Sint-Niklaas").split(",")[0].trim();
+  const city = extractCity(event);
   if (lang === "nl") {
     return [
       `${brand} Private Sale`,
