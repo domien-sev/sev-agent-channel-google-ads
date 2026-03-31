@@ -5,6 +5,7 @@ import { CampaignOptimizer } from "@domien-sev/ads-sdk";
 import { getClient, readItems, createItem } from "./lib/directus.js";
 import { formatRecommendationsForSlack, formatFatigueAlerts } from "./handlers/approval.js";
 import { setPendingRecommendations } from "./handlers/optimize-rules.js";
+import { runAudit, formatAuditForSlack } from "./handlers/audit.js";
 import { slackPost, isSlackConfigured } from "./tools/slack.js";
 import { syncKeywords, syncSearchTerms, syncAssetGroups } from "./tools/directus-sync.js";
 import { syncPerformanceScores } from "./tools/performance-sync.js";
@@ -13,6 +14,7 @@ let optimizeTask: cron.ScheduledTask | null = null;
 let alertsTask: cron.ScheduledTask | null = null;
 let syncTask: cron.ScheduledTask | null = null;
 let perfSyncTask: cron.ScheduledTask | null = null;
+let auditTask: cron.ScheduledTask | null = null;
 
 /**
  * Initialize the optimization scheduler.
@@ -27,6 +29,7 @@ export function initScheduler(agent: GoogleAdsAgent): void {
   initAlertsCron(agent);
   initSyncCron(agent);
   initPerfSyncCron(agent);
+  initAuditCron(agent);
 }
 
 function initOptimizationCron(agent: GoogleAdsAgent): void {
@@ -139,7 +142,74 @@ function startPerfSyncCron(agent: GoogleAdsAgent, cronExpr: string): void {
   console.log(`[scheduler] Performance score sync scheduled: "${cronExpr}"`);
 }
 
-async function runPerfSync(agent: GoogleAdsAgent): Promise<void> {
+// ─── Weekly Audit ────────────────────────────────────────────────────────────
+
+function initAuditCron(agent: GoogleAdsAgent): void {
+  const cronExpr = process.env.AUDIT_CRON ?? "0 9 * * 1"; // Monday 9 AM Brussels
+
+  if (!cron.validate(cronExpr)) {
+    console.error(`[scheduler] Invalid AUDIT_CRON: "${cronExpr}" — falling back to Monday 9 AM`);
+    return startAuditCron(agent, "0 9 * * 1");
+  }
+
+  startAuditCron(agent, cronExpr);
+}
+
+function startAuditCron(agent: GoogleAdsAgent, cronExpr: string): void {
+  auditTask = cron.schedule(cronExpr, async () => {
+    console.log(`[scheduler] Running weekly audit at ${new Date().toISOString()}`);
+    try {
+      await runWeeklyAudit(agent);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[scheduler] Weekly audit failed: ${msg}`);
+    }
+  }, {
+    timezone: "Europe/Brussels",
+  });
+
+  console.log(`[scheduler] Weekly audit scheduled: "${cronExpr}"`);
+}
+
+export async function runWeeklyAudit(agent: GoogleAdsAgent): Promise<void> {
+  if (!agent.googleAds) {
+    console.log("[scheduler] Google Ads client not configured — skipping audit");
+    return;
+  }
+
+  const result = await runAudit(agent.googleAds);
+  const slackMsg = formatAuditForSlack(result);
+  await postToSlack(agent, slackMsg);
+
+  // Log to Directus
+  const client = getClient(agent);
+  try {
+    await client.request(
+      createItem("agent_events", {
+        agent: "google-ads",
+        type: "weekly_audit",
+        data: {
+          date: result.date,
+          score: result.overallScore,
+          grade: result.overallGrade,
+          categories: result.categories.map((c) => ({
+            name: c.name, score: c.score, grade: c.grade,
+          })),
+          critical_count: result.critical.length,
+          high_count: result.high.length,
+        },
+      }),
+    );
+  } catch {
+    console.error("[scheduler] Failed to log audit to Directus");
+  }
+
+  console.log(`[scheduler] Weekly audit posted — score: ${result.overallScore}/100 (${result.overallGrade})`);
+}
+
+// ─── Performance Sync ────────────────────────────────────────────────────────
+
+export async function runPerfSync(agent: GoogleAdsAgent): Promise<void> {
   if (!agent.googleAds) {
     console.log("[scheduler] Google Ads client not configured — skipping perf sync");
     return;
@@ -239,7 +309,7 @@ async function runOptimizationCycle(agent: GoogleAdsAgent): Promise<void> {
 /**
  * Daily alerts — summarizes account health, quality score issues, wasted spend.
  */
-async function runDailyAlerts(agent: GoogleAdsAgent): Promise<void> {
+export async function runDailyAlerts(agent: GoogleAdsAgent): Promise<void> {
   if (!agent.googleAds) {
     console.log("[scheduler] Google Ads client not configured — skipping daily alerts");
     return;
@@ -300,7 +370,7 @@ async function runDailyAlerts(agent: GoogleAdsAgent): Promise<void> {
 /**
  * Sync Google Ads data to Directus — keywords, search terms, asset groups.
  */
-async function runDataSync(agent: GoogleAdsAgent): Promise<void> {
+export async function runDataSync(agent: GoogleAdsAgent): Promise<void> {
   if (!agent.googleAds || !agent.directus) {
     console.log("[scheduler] Google Ads or Directus not configured — skipping sync");
     return;
@@ -413,6 +483,11 @@ export function stopScheduler(): void {
     perfSyncTask.stop();
     perfSyncTask = null;
     console.log("[scheduler] Performance sync cron stopped");
+  }
+  if (auditTask) {
+    auditTask.stop();
+    auditTask = null;
+    console.log("[scheduler] Audit cron stopped");
   }
 }
 

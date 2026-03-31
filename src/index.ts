@@ -1,8 +1,9 @@
 import http from "node:http";
 import { GoogleAdsAgent } from "./agent.js";
-import { loadConfig, createHealthEndpoint } from "@domien-sev/agent-sdk";
-import { initScheduler, stopScheduler, runOptimizationCycleHttp } from "./scheduler.js";
+import { loadConfig, createHealthEndpoint, createHeartbeatEndpoint } from "@domien-sev/agent-sdk";
+import { initScheduler, stopScheduler, runOptimizationCycleHttp, runDailyAlerts, runDataSync, runPerfSync, runWeeklyAudit } from "./scheduler.js";
 import { handleBatchCampaigns } from "./handlers/batch.js";
+import { runAudit } from "./handlers/audit.js";
 
 const PORT = parseInt(process.env.PORT ?? process.env.AGENT_PORT ?? "3000", 10);
 
@@ -11,10 +12,37 @@ async function main() {
   const agent = new GoogleAdsAgent(config);
 
   const healthHandler = createHealthEndpoint(agent);
+  const heartbeatHandler = createHeartbeatEndpoint(agent, {
+    "hourly-optimize": async (_p, a) => {
+      const result = await runOptimizationCycleHttp(a as GoogleAdsAgent);
+      return `Analyzed ${result.campaigns_analyzed} campaigns, ${result.recommendations?.length ?? 0} recommendations`;
+    },
+    "daily-alerts": async (_p, a) => {
+      await runDailyAlerts(a as GoogleAdsAgent);
+      return "Daily alerts posted";
+    },
+    "data-sync": async (_p, a) => {
+      await runDataSync(a as GoogleAdsAgent);
+      return "Keywords, search terms, asset groups synced";
+    },
+    "perf-sync": async (_p, a) => {
+      await runPerfSync(a as GoogleAdsAgent);
+      return "Performance scores synced";
+    },
+    "weekly-audit": async (_p, a) => {
+      await runWeeklyAudit(a as GoogleAdsAgent);
+      return "Weekly audit completed";
+    },
+  });
 
   const server = http.createServer(async (req, res) => {
     if (req.url === "/health" && req.method === "GET") {
       return healthHandler(req, res);
+    }
+
+    // Paperclip heartbeat endpoint
+    if (req.url === "/heartbeat" && req.method === "POST") {
+      return heartbeatHandler(req, res);
     }
 
     if (req.url?.startsWith("/message")) {
@@ -72,6 +100,22 @@ async function main() {
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error("Optimization cycle error:", errMsg);
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: errMsg }));
+      }
+      return;
+    }
+
+    // Audit endpoint — trigger health audit via HTTP
+    if (req.url === "/audit" && req.method === "POST") {
+      try {
+        if (!agent.googleAds) throw new Error("Google Ads client not configured");
+        const result = await runAudit(agent.googleAds);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("Audit error:", errMsg);
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: errMsg }));
       }
