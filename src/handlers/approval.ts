@@ -5,16 +5,21 @@
  */
 import type { AgentResponse, OptimizationRecommendation, AdCampaignRecord, CreativeFatigueAlert } from "@domien-sev/shared-types";
 import type { GoogleAdsAgent } from "../agent.js";
+import { requestGovernanceApproval, recordGovernanceDecision } from "@domien-sev/agent-sdk";
 import { getClient, readItems, updateItem, createItem } from "../lib/directus.js";
+
+/** Map recommendation IDs to Paperclip approval IDs for tracking */
+const approvalMap = new Map<string, string>();
 
 /**
  * Format optimization recommendations as Slack messages for human approval.
  */
-export function formatRecommendationsForSlack(
+export async function formatRecommendationsForSlack(
   recommendations: OptimizationRecommendation[],
   channelId: string,
   threadTs?: string,
-): AgentResponse {
+  agent?: GoogleAdsAgent,
+): Promise<AgentResponse> {
   if (recommendations.length === 0) {
     return {
       channel_id: channelId,
@@ -51,6 +56,28 @@ export function formatRecommendationsForSlack(
   lines.push("`reject <id>` — Reject a specific recommendation");
   lines.push("`snooze all` — Snooze all for next cycle");
 
+  // Dual-write: create Paperclip approval records for audit trail
+  if (agent) {
+    for (const rec of recommendations) {
+      const approvalId = await requestGovernanceApproval(agent, {
+        type: rec.action.type === "scale_budget" ? "budget_change" : rec.action.type,
+        description: `${rec.campaign_name}: ${getActionLabel(rec)}`,
+        context: {
+          recommendationId: rec.id,
+          campaignId: rec.campaign_id,
+          campaignName: rec.campaign_name,
+          platform: rec.platform,
+          action: rec.action,
+          reason: rec.reason,
+          metrics: rec.metrics,
+        },
+      });
+      if (approvalId) {
+        approvalMap.set(rec.id, approvalId);
+      }
+    }
+  }
+
   return {
     channel_id: channelId,
     thread_ts: threadTs,
@@ -71,11 +98,18 @@ export async function handleApprovalResponse(
   const lower = text.trim().toLowerCase();
 
   if (lower === "approve all") {
+    // Record governance decisions in Paperclip
+    for (const rec of pendingRecommendations) {
+      await recordGovernanceDecision(agent, approvalMap.get(rec.id) ?? null, "approved", { campaignName: rec.campaign_name });
+    }
     return executeApprovedRecommendations(agent, pendingRecommendations, channelId, threadTs);
   }
 
   if (lower === "reject all") {
-    for (const rec of pendingRecommendations) rec.status = "rejected";
+    for (const rec of pendingRecommendations) {
+      rec.status = "rejected";
+      await recordGovernanceDecision(agent, approvalMap.get(rec.id) ?? null, "rejected", { campaignName: rec.campaign_name });
+    }
     await logDecisions(agent, pendingRecommendations, "rejected");
     return {
       channel_id: channelId,
@@ -102,6 +136,7 @@ export async function handleApprovalResponse(
     if (!rec) {
       return { channel_id: channelId, thread_ts: threadTs, text: `Recommendation \`${id}\` not found.` };
     }
+    await recordGovernanceDecision(agent, approvalMap.get(id) ?? null, "approved", { campaignName: rec.campaign_name });
     return executeApprovedRecommendations(agent, [rec], channelId, threadTs);
   }
 
@@ -114,6 +149,7 @@ export async function handleApprovalResponse(
       return { channel_id: channelId, thread_ts: threadTs, text: `Recommendation \`${id}\` not found.` };
     }
     rec.status = "rejected";
+    await recordGovernanceDecision(agent, approvalMap.get(id) ?? null, "rejected", { campaignName: rec.campaign_name });
     await logDecisions(agent, [rec], "rejected");
     return { channel_id: channelId, thread_ts: threadTs, text: `Rejected recommendation for "${rec.campaign_name}".` };
   }

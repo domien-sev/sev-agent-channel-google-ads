@@ -46,7 +46,7 @@ export async function handleOptimizeRules(
     if (pendingRecommendations.length === 0) {
       return reply(message, "No pending recommendations. Run `rules` to trigger an optimization cycle.");
     }
-    return formatRecommendationsForSlack(
+    return await formatRecommendationsForSlack(
       pendingRecommendations,
       message.channel_id,
       message.thread_ts ?? message.ts,
@@ -120,10 +120,11 @@ async function runRulesCycle(
   }
 
   if (result.recommendations.length > 0) {
-    const recResponse = formatRecommendationsForSlack(
+    const recResponse = await formatRecommendationsForSlack(
       result.recommendations,
       message.channel_id,
       message.thread_ts ?? message.ts,
+      agent,
     );
     if (result.fatigue_alerts.length > 0 || result.errors.length > 0) {
       recResponse.text = lines.join("\n") + "\n\n" + recResponse.text;

@@ -300,7 +300,7 @@ async function runOptimizationCycle(agent: GoogleAdsAgent): Promise<void> {
     setPendingRecommendations(result.recommendations);
 
     const channelId = process.env.GOOGLE_ADS_CHANNEL ?? "agent-google-ads";
-    const slackMsg = formatRecommendationsForSlack(result.recommendations, channelId);
+    const slackMsg = await formatRecommendationsForSlack(result.recommendations, channelId, undefined, agent);
     await postToSlack(agent, slackMsg.text ?? "Optimization recommendations pending.");
     console.log(`[scheduler] Posted ${result.recommendations.length} recommendation(s)`);
   }
