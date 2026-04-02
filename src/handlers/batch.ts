@@ -23,6 +23,7 @@ import { storeAdCopy } from "../tools/ad-memory.js";
 import { createRedTrackCampaign, isRedTrackConfigured } from "../tools/redtrack.js";
 import { searchBrandContext } from "../tools/brand-knowledge.js";
 import type { CampaignConfig, GoogleCampaignType } from "../types.js";
+import { sanitizeGaqlString } from "../tools/gaql.js";
 
 export interface BatchRequest {
   eventId: string;
@@ -541,7 +542,7 @@ async function findExistingCampaigns(
     const query = `
       SELECT campaign.name, campaign.id
       FROM campaign
-      WHERE campaign.name LIKE '%${datePrefix.replace(/'/g, "\\'")}%${shortName.replace(/'/g, "\\'")}%'
+      WHERE campaign.name LIKE '%${sanitizeGaqlString(datePrefix)}%${sanitizeGaqlString(shortName)}%'
         AND campaign.status != 'REMOVED'
     `.trim();
 

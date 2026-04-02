@@ -26,7 +26,8 @@ function sanitizeDate(date: string): string {
 
 /** Sanitize a string for use in GAQL LIKE clauses — escape single quotes */
 export function sanitizeGaqlString(value: string): string {
-  return value.replace(/'/g, "\\'").replace(/\\/g, "\\\\");
+  // Escape backslashes first, then single quotes (order matters to avoid double-escaping)
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 function last30Days(): DateRange {
